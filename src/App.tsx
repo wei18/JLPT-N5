@@ -328,23 +328,8 @@ export default function App() {
                     </div>
                     <h2 className="text-2xl font-serif font-bold">學習記錄與排行榜</h2>
                     <p className="text-stone-500">
-                      所有朋友的測驗結果都會記錄在你的 Google 試算表中，並在此顯示排行榜。
+                      所有朋友的測驗結果都會自動彙整，並在此顯示排行榜。
                     </p>
-                    
-                    {spreadsheetId && (
-                      <div className="pt-2">
-                        <a 
-                          href={`https://docs.google.com/spreadsheets/d/${spreadsheetId}`} 
-                          target="_blank" 
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-2 text-blue-600 hover:underline text-sm font-medium"
-                        >
-                          <FileSpreadsheet size={16} />
-                          開啟目前的試算表
-                        </a>
-                        <p className="text-[10px] text-stone-400 mt-1 font-mono">ID: {spreadsheetId}</p>
-                      </div>
-                    )}
                   </div>
                   <div className="mt-8 grid grid-cols-2 gap-2">
                     <div className="bg-stone-50 rounded-xl p-4 text-center">
@@ -406,6 +391,7 @@ export default function App() {
                         <th className="px-6 py-4 font-medium">標題</th>
                         <th className="px-6 py-4 font-medium">日期</th>
                         <th className="px-6 py-4 font-medium">已考人數</th>
+                        <th className="px-6 py-4 font-medium">平均分數</th>
                         <th className="px-6 py-4 font-medium text-right">操作</th>
                       </tr>
                     </thead>
@@ -431,6 +417,11 @@ export default function App() {
                                 </span>
                               </div>
                             </td>
+                            <td className="px-6 py-4">
+                              <span className="text-xs font-medium text-stone-600">
+                                {form.responseCount > 0 ? `${form.averageScore} 分` : '-'}
+                              </span>
+                            </td>
                             <td className="px-6 py-4 text-right">
                               <div className="flex items-center justify-end gap-2">
                                 <a 
@@ -442,6 +433,17 @@ export default function App() {
                                 >
                                   <ExternalLink size={16} />
                                 </a>
+                                {form.sessionSheetId && (
+                                  <a 
+                                    href={`https://docs.google.com/spreadsheets/d/${form.sessionSheetId}`} 
+                                    target="_blank" 
+                                    rel="noreferrer"
+                                    className="p-2 text-stone-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-all"
+                                    title="開啟對應試算表"
+                                  >
+                                    <FileSpreadsheet size={16} />
+                                  </a>
+                                )}
                                 <button 
                                   onClick={() => deleteForm(form.id)}
                                   className="p-2 text-stone-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
