@@ -8,6 +8,8 @@ export interface VocabularyItem {
   meaning: string;
   example: string;
   distractors: string[];
+  isExamStyle?: boolean;
+  examQuestionText?: string; // e.g. "あしたは ____ です。" where the answer is "やすみ"
 }
 
 export async function generateWeeklyVocabulary(previousMistakes: string[] = []): Promise<VocabularyItem[]> {
@@ -21,18 +23,22 @@ export async function generateWeeklyVocabulary(previousMistakes: string[] = []):
     PRIORITY: Include these ${mistakesList.length} recent error words: ${mistakesList.join(', ')}.
     FILL: Add ${newCount} new N5 level words to reach a total of 50.
     
+    SPECIAL REQUIREMENT: 
+    Pick 5 words from the list and set "isExamStyle" to true. 
+    For these 5 words, provide an "examQuestionText" which is a complete Japanese sentence with a blank (____) where the word should go, mimicking a JLPT N5 grammar/vocabulary question.
+    
     For each word, provide:
     1. The word (Kanji/Kana)
     2. Reading (Hiragana)
     3. Meaning (Traditional Chinese)
     4. A simple example sentence (Japanese with reading in brackets and Chinese translation)
-    5. 3 distractors (incorrect meanings in Traditional Chinese) for a multiple-choice quiz.
+    5. 3 distractors (incorrect meanings or similar-looking words in Traditional Chinese/Japanese depending on context) for a multiple-choice quiz.
     
     Ensure all words are strictly within the N5 JLPT range.
   `;
 
   const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
+    model: "gemini-1.5-flash",
     contents: prompt,
     config: {
       responseMimeType: "application/json",
@@ -49,6 +55,8 @@ export async function generateWeeklyVocabulary(previousMistakes: string[] = []):
               type: Type.ARRAY,
               items: { type: Type.STRING }
             },
+            isExamStyle: { type: Type.BOOLEAN },
+            examQuestionText: { type: Type.STRING },
           },
           required: ["word", "reading", "meaning", "example", "distractors"],
         },

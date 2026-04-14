@@ -239,7 +239,7 @@ export default function App() {
             </div>
             <h1 className="text-4xl font-serif font-bold text-stone-900">N5 Vocabulary Master</h1>
             <p className="text-stone-500 leading-relaxed">
-              每週 50 個單字，AI 根據你的錯誤自動調整學習路徑。
+              50 個單字，AI 根據你的近期錯誤自動調整學習路徑。
               連結 Google Sheets 記錄你的成長。
             </p>
           </div>
@@ -293,9 +293,9 @@ export default function App() {
                     <div className="w-12 h-12 bg-amber-50 rounded-2xl flex items-center justify-center">
                       <Play className="text-amber-600" size={24} />
                     </div>
-                    <h2 className="text-2xl font-serif font-bold">生成本週測驗</h2>
+                    <h2 className="text-2xl font-serif font-bold">生成測驗</h2>
                     <p className="text-stone-500">
-                      AI 將分析上週錯誤並生成 50 個單字，直接為你建立 Google 表單測驗。
+                      AI 將分析近期錯誤並生成 50 個單字，直接為你建立 Google 表單測驗。
                     </p>
                     {formUrl && (
                       <div className="mt-4 p-4 bg-amber-50 border border-amber-100 rounded-xl">

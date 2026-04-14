@@ -12,10 +12,12 @@ An AI-powered JLPT N5 vocabulary study tool that generates weekly vocabulary lis
 ### 2. Google Form Integration
 - **Automatic Creation**: Generates a Google Form quiz with a single click.
 - **Question Types**:
-    - 90% Multiple Choice (Choice of readings or meanings).
+    - 80% Multiple Choice (Choice of readings or meanings).
     - 10% Short Answer (Fill-in-the-blank for readings).
+    - 10% (5 questions) JLPT N5 Exam Style: Contextual questions where the word is used in a sentence with a blank (____).
 - **Pre-test Study**: The form description contains the full vocabulary list for last-minute review.
 - **Grading**: Automatically sets up as a quiz with correct answers and point values.
+- **Security**: Enforces **Verified Email Collection** and **Always Send Response Copy** to ensure data integrity and user feedback.
 
 ### 3. Data Management (Google Sheets)
 - **Study Log**: A central Google Spreadsheet stores all data.
