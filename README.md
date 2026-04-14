@@ -1,6 +1,12 @@
 # N5 Vocabulary Master
 
+<a href="https://ai.studio/build">
+  <img src="https://raw.githubusercontent.com/google-gemini/ai-studio-build-assets/main/built-with-ai-studio.png" width="200" alt="Built with AI Studio">
+</a>
+
 這是一個基於 AI 的 JLPT N5 單字學習工具，能夠自動分析學習進度並生成 Google 表單測驗。
+
+**專案網址**: [https://ais-dev-kicu6tt5kmvvhoxsr6lhzu-253556148361.asia-east1.run.app](https://ais-dev-kicu6tt5kmvvhoxsr6lhzu-253556148361.asia-east1.run.app)
 
 ## 🌟 核心功能
 
