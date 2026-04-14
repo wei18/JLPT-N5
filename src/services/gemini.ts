@@ -11,13 +11,15 @@ export interface VocabularyItem {
 }
 
 export async function generateWeeklyVocabulary(previousMistakes: string[] = []): Promise<VocabularyItem[]> {
-  const newCount = 50 - previousMistakes.length;
+  const mistakesList = previousMistakes.slice(0, 50);
+  const newCount = Math.max(0, 50 - mistakesList.length);
   
   const prompt = `
     Generate a list of Japanese N5 level vocabulary.
     Total words needed: 50.
-    New words: ${newCount}.
-    Review words (based on these mistakes): ${previousMistakes.join(', ')}.
+    
+    PRIORITY: Include these ${mistakesList.length} recent error words: ${mistakesList.join(', ')}.
+    FILL: Add ${newCount} new N5 level words to reach a total of 50.
     
     For each word, provide:
     1. The word (Kanji/Kana)

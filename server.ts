@@ -201,12 +201,13 @@ app.post('/api/forms/create', async (req, res) => {
     // 10% 填空題 (Short Answer), 90% 選擇題 (Multiple Choice)
     vocabulary.forEach((item: any, index: number) => {
       const isShortAnswer = Math.random() < 0.1;
+      const questionNumber = index + 1;
 
       if (isShortAnswer) {
         requests.push({
           createItem: {
             item: {
-              title: `${item.word} (${item.meaning}) 的假名是什麼？`,
+              title: `${questionNumber}. ${item.word} (${item.meaning}) 的假名是什麼？`,
               questionItem: {
                 question: {
                   required: true,
@@ -234,7 +235,7 @@ app.post('/api/forms/create', async (req, res) => {
         requests.push({
           createItem: {
             item: {
-              title: `${item.word} (${item.reading}) 的意思是什麼？`,
+              title: `${questionNumber}. ${item.word} (${item.reading}) 的意思是什麼？`,
               questionItem: {
                 question: {
                   required: true,
@@ -385,7 +386,7 @@ app.get('/api/forms/list', async (req, res) => {
         range: 'Forms List!A2:D',
       });
 
-      const forms = await Promise.all((response.data.values || []).map(async row => {
+      const forms = await Promise.all((response.data.values || []).slice(0, 20).map(async row => {
         const id = row[0];
         let responseCount = 0;
         try {

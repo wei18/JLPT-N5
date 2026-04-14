@@ -87,7 +87,7 @@ export default function App() {
     return () => window.removeEventListener('message', handleMessage);
   }, []);
 
-  const fetchUser = async () => {
+  const fetchUser = async (retries = 3) => {
     try {
       const res = await fetch('/api/user');
       if (res.ok) {
@@ -97,11 +97,19 @@ export default function App() {
           analyzeSpreadsheet();
           fetchFormsHistory();
         }
+        setLoading(false);
+      } else {
+        if (res.status === 401) setUser(null);
+        setLoading(false);
       }
     } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
+      console.error("Fetch user failed", e);
+      if (retries > 0) {
+        console.log(`Retrying fetchUser... (${retries} left)`);
+        setTimeout(() => fetchUser(retries - 1), 2000);
+      } else {
+        setLoading(false);
+      }
     }
   };
 

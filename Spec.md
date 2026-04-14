@@ -6,8 +6,8 @@ An AI-powered JLPT N5 vocabulary study tool that generates weekly vocabulary lis
 ## Core Features
 
 ### 1. Vocabulary Generation
-- Generates 50 N5-level vocabulary words per week.
-- AI-driven: Analyzes past mistakes from the Google Spreadsheet to prioritize weak words (approx. 10 words) and introduces new ones (approx. 40 words).
+- Generates 50 N5-level vocabulary words per session.
+- AI-driven: Analyzes all past mistakes from the Google Spreadsheet to prioritize the most recent 50 weak words. If fewer than 50 mistakes exist, it fills the remainder with new N5 words.
 
 ### 2. Google Form Integration
 - **Automatic Creation**: Generates a Google Form quiz with a single click.
