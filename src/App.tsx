@@ -75,7 +75,7 @@ export default function App() {
   const [leaderboard, setLeaderboard] = useState<any>(null);
   const [formsHistory, setFormsHistory] = useState<any[]>([]);
   const [spreadsheetId, setSpreadsheetId] = useState<string | null>(localStorage.getItem('spreadsheetId'));
-  const [showPrompt, setShowPrompt] = useState(false);
+  const [showPrompt, setShowPrompt] = useState(true);
 
   // --- Auth ---
   useEffect(() => {
