@@ -76,11 +76,22 @@ app.post('/api/analyze', async (req, res) => {
     const formsApi = google.forms({ version: 'v1', auth: client });
 
     // 1. 從 Master Registry 讀取最近的表單紀錄
-    const registryRes = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: 'Forms List!A2:E',
-    });
-    const registryRows = registryRes.data.values || [];
+    let registryRows: any[] = [];
+    try {
+      const registryRes = await sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: 'Forms List!A2:E',
+      });
+      registryRows = registryRes.data.values || [];
+    } catch (error: any) {
+      // 如果試算表被刪除或找不到，返回空資料
+      if (error.code === 404 || (error.message && error.message.includes('NOT_FOUND'))) {
+        console.warn('Master Registry spreadsheet not found:', spreadsheetId);
+        return res.json({ mistakes: [], leaderboard: null, error: 'REGISTRY_NOT_FOUND' });
+      }
+      throw error;
+    }
+
     if (registryRows.length === 0) {
       return res.json({ mistakes: [], leaderboard: null });
     }
@@ -96,7 +107,7 @@ app.post('/api/analyze', async (req, res) => {
     // 2. 遍歷每個表單，直接從 Forms API 讀取回覆
     for (const row of recentForms) {
       const formId = row[0];
-      const sessionDate = row[4];
+      const sessionDate = row.length === 5 ? row[4] : row[3];
       
       try {
         // 取得表單結構（為了知道正確答案）
@@ -128,10 +139,14 @@ app.post('/api/analyze', async (req, res) => {
         const responses = responsesRes.data.responses || [];
 
         responses.forEach(resp => {
+          // 嘗試取得 Email (如果表單有收集)
+          const email = resp.respondentEmail;
+          
+          // 排除匿名或非特定帳號的測試資料
+          if (!email || email === 'anonymous') return;
+
           // 記錄分數
           const totalScore = resp.totalScore || 0;
-          // 嘗試取得 Email (如果表單有收集)
-          const email = resp.respondentEmail || 'anonymous';
           allScores.push({ email, score: totalScore, date: sessionDate });
 
           // 檢查答案找出錯誤
@@ -333,12 +348,26 @@ app.post('/api/forms/create', async (req, res) => {
       const dateStr = now.toISOString().split('T')[0].replace(/-/g, '');
       
       // 讀取 Master Registry 獲取當日 Index
-      const registryRes = await sheets.spreadsheets.values.get({
-        spreadsheetId,
-        range: 'Forms List!A:E',
-      });
-      const rows = registryRes.data.values || [];
-      const todayCount = rows.filter(row => row[4] && row[4].startsWith(now.toISOString().split('T')[0])).length;
+      let rows: any[] = [];
+      try {
+        const registryRes = await sheets.spreadsheets.values.get({
+          spreadsheetId,
+          range: 'Forms List!A:E',
+        });
+        rows = registryRes.data.values || [];
+      } catch (error: any) {
+        if (error.code === 404 || (error.message && error.message.includes('NOT_FOUND'))) {
+          console.warn('Master Registry not found during form creation:', spreadsheetId);
+          return res.status(404).json({ error: 'REGISTRY_NOT_FOUND' });
+        }
+        throw error;
+      }
+
+      const todayPrefix = now.toISOString().split('T')[0];
+      const todayCount = rows.filter(row => {
+        const dateStr = row.length === 5 ? row[4] : row[3];
+        return dateStr && dateStr.startsWith(todayPrefix);
+      }).length;
       const index = todayCount + 1;
       const sessionSheetName = `N5_Quiz_${dateStr}_${index}`;
 
@@ -465,38 +494,98 @@ app.get('/api/forms/list', async (req, res) => {
 
       const forms = await Promise.all((response.data.values || []).slice(0, 20).map(async row => {
         const id = row[0];
-        const sessionSheetId = row[3];
+        let sessionSheetId = null;
+        let date = 'Unknown';
+        
+        // 判斷資料格式：舊版 4 欄 [ID, Title, URL, Date] / 新版 5 欄 [ID, Title, URL, SheetID, Date]
+        if (row.length === 5) {
+          sessionSheetId = row[3];
+          date = row[4];
+        } else if (row.length === 4) {
+          date = row[3];
+        }
+
         let responseCount = 0;
         let averageScore = 0;
+        let weakWords: { word: string, count: number }[] = [];
 
         try {
-          // 直接從 Forms API 讀取回覆
+          // 取得表單結構（為了知道正確答案與問題對應的單字）
+          const formMetadata = await formsApi.forms.get({ formId: id });
+          const questions = formMetadata.data.items || [];
+          const questionMap = new Map();
+          
+          questions.forEach(item => {
+            if (item.questionItem?.question) {
+              const q = item.questionItem.question;
+              const correctAnswers = q.grading?.correctAnswers?.answers?.map(a => a.value) || [];
+              const title = item.title || '';
+              const cleanTitle = title.replace(/^\d+\.\s*/, '');
+              const wordMatch = cleanTitle.match(/^(.+?)\s*\(/);
+              const word = wordMatch ? wordMatch[1] : cleanTitle.split(' ')[0];
+
+              questionMap.set(q.questionId, { word, correctAnswers });
+            }
+          });
+
+          // 直接從 Forms API 讀取回覆 (這是最準確的，且不依賴試算表是否連結)
           const formsRes = await formsApi.forms.responses.list({ formId: id });
-          const responses = formsRes.data.responses || [];
-          responseCount = responses.length;
+          // 過濾掉匿名回覆 (測試資料)
+          const validResponses = (formsRes.data.responses || []).filter(r => r.respondentEmail && r.respondentEmail !== 'anonymous');
+          responseCount = validResponses.length;
           
           if (responseCount > 0) {
-            const scores = responses.map(r => r.totalScore || 0);
+            const scores = validResponses.map(r => r.totalScore || 0);
             averageScore = scores.reduce((a, b) => a + b, 0) / responseCount;
+
+            // 計算該表單的錯誤單字
+            const mistakeCounts: { [key: string]: number } = {};
+            validResponses.forEach(resp => {
+              Object.entries(resp.answers || {}).forEach(([qId, answerObj]: [string, any]) => {
+                const qInfo = questionMap.get(qId);
+                if (qInfo) {
+                  const userAnswers = answerObj.textAnswers?.answers?.map((a: any) => a.value) || [];
+                  const isCorrect = qInfo.correctAnswers.some((ca: string) => userAnswers.includes(ca));
+                  if (!isCorrect) {
+                    mistakeCounts[qInfo.word] = (mistakeCounts[qInfo.word] || 0) + 1;
+                  }
+                }
+              });
+            });
+
+            // 轉為陣列並排序取前 10
+            weakWords = Object.entries(mistakeCounts)
+              .map(([word, count]) => ({ word, count }))
+              .sort((a, b) => b.count - a.count)
+              .slice(0, 10);
           }
-        } catch (e) {
-          console.error(`Failed to fetch basic info for form ${id}:`, e);
+        } catch (e: any) {
+          // 如果表單被刪除，忽略錯誤
+          if (e.code === 404 || (e.message && e.message.includes('NOT_FOUND'))) {
+            console.warn(`Form ${id} not found, skipping.`);
+          } else {
+            console.error(`Failed to fetch basic info for form ${id}:`, e);
+          }
         }
 
         return {
           id,
-          title: row[1],
-          url: row[2],
-          date: row[4],
+          title: row[1] || 'Untitled',
+          url: row[2] || '',
+          date,
           sessionSheetId,
           responseCount,
-          averageScore: Math.round(averageScore)
+          averageScore: Math.round(averageScore),
+          weakWords
         };
       }));
 
       res.json({ forms });
     } catch (error: any) {
-      // If the error is because the sheet doesn't exist yet, return an empty list instead of crashing
+      // If the error is because the sheet doesn't exist yet or was deleted
+      if (error.code === 404 || (error.message && error.message.includes('NOT_FOUND'))) {
+        return res.json({ forms: [], error: 'REGISTRY_NOT_FOUND' });
+      }
       if (error.message && error.message.includes('Unable to parse range')) {
         return res.json({ forms: [] });
       }
@@ -529,14 +618,23 @@ app.post('/api/forms/delete', async (req, res) => {
     }
 
     // 2. 讀取所有表單紀錄並找出對應的試算表 ID
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: 'Forms List!A:E',
-    });
+    let values: any[] = [];
+    try {
+      const response = await sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: 'Forms List!A:E',
+      });
+      values = response.data.values || [];
+    } catch (error: any) {
+      if (error.code === 404 || (error.message && error.message.includes('NOT_FOUND'))) {
+        console.warn('Master Registry not found during form deletion:', spreadsheetId);
+        return res.json({ success: true, warning: 'REGISTRY_NOT_FOUND' });
+      }
+      throw error;
+    }
 
-    const values = response.data.values || [];
     const targetRow = values.find(row => row[0] === formId);
-    const sessionSheetId = targetRow ? targetRow[3] : null;
+    const sessionSheetId = (targetRow && targetRow.length === 5) ? targetRow[3] : null;
 
     // 3. 從 Google Drive 刪除專屬試算表
     if (sessionSheetId) {

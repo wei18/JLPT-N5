@@ -15,9 +15,10 @@ import {
   AlertCircle,
   Trash2,
   ExternalLink,
-  Clock
+  Clock,
+  Code
 } from 'lucide-react';
-import { generateWeeklyVocabulary, VocabularyItem } from './services/gemini';
+import { generateWeeklyVocabulary, VocabularyItem, VOCAB_PROMPT_TEMPLATE } from './services/gemini';
 
 // --- Types ---
 interface User {
@@ -74,6 +75,7 @@ export default function App() {
   const [leaderboard, setLeaderboard] = useState<any>(null);
   const [formsHistory, setFormsHistory] = useState<any[]>([]);
   const [spreadsheetId, setSpreadsheetId] = useState<string | null>(localStorage.getItem('spreadsheetId'));
+  const [showPrompt, setShowPrompt] = useState(false);
 
   // --- Auth ---
   useEffect(() => {
@@ -122,6 +124,12 @@ export default function App() {
         body: JSON.stringify({ spreadsheetId })
       });
       const data = await res.json();
+      
+      if (data.error === 'REGISTRY_NOT_FOUND') {
+        handleStaleRegistry();
+        return [];
+      }
+
       setLeaderboard(data.leaderboard);
       return data.mistakes;
     } catch (e) {
@@ -147,10 +155,24 @@ export default function App() {
     try {
       const res = await fetch(`/api/forms/list?spreadsheetId=${spreadsheetId}`);
       const data = await res.json();
+
+      if (data.error === 'REGISTRY_NOT_FOUND') {
+        handleStaleRegistry();
+        return;
+      }
+
       setFormsHistory(data.forms || []);
     } catch (e) {
-      console.error("Failed to fetch forms history", e);
+      console.error("Fetch history failed", e);
     }
+  };
+
+  const handleStaleRegistry = () => {
+    console.warn("Master Registry not found. Clearing stale ID.");
+    localStorage.removeItem('spreadsheetId');
+    setSpreadsheetId(null);
+    setLeaderboard(null);
+    setFormsHistory([]);
   };
 
   const deleteForm = async (formId: string) => {
@@ -161,8 +183,11 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ spreadsheetId, formId })
       });
+      const data = await res.json();
       if (res.ok) {
         setFormsHistory(prev => prev.filter(f => f.id !== formId));
+      } else if (data.warning === 'REGISTRY_NOT_FOUND') {
+        handleStaleRegistry();
       }
     } catch (e) {
       console.error("Failed to delete form", e);
@@ -206,6 +231,12 @@ export default function App() {
         })
       });
       const data = await res.json();
+      if (data.error === 'REGISTRY_NOT_FOUND') {
+        handleStaleRegistry();
+        alert('主控試算表已遺失，系統已自動重置。請再次點擊「生成」以重新初始化。');
+        return;
+      }
+
       if (data.formUrl) {
         setFormUrl(data.formUrl);
         fetchFormsHistory();
@@ -392,6 +423,7 @@ export default function App() {
                         <th className="px-6 py-4 font-medium">日期</th>
                         <th className="px-6 py-4 font-medium">已考人數</th>
                         <th className="px-6 py-4 font-medium">平均分數</th>
+                        <th className="px-6 py-4 font-medium">常錯單字 (Top 10)</th>
                         <th className="px-6 py-4 font-medium text-right">操作</th>
                       </tr>
                     </thead>
@@ -407,7 +439,9 @@ export default function App() {
                             </td>
                             <td className="px-6 py-4">
                               <span className="text-xs text-stone-500">
-                                {new Date(form.date).toLocaleDateString()}
+                                {form.date && form.date !== 'Unknown' 
+                                  ? new Date(form.date).toLocaleDateString() 
+                                  : '未知日期'}
                               </span>
                             </td>
                             <td className="px-6 py-4">
@@ -421,6 +455,23 @@ export default function App() {
                               <span className="text-xs font-medium text-stone-600">
                                 {form.responseCount > 0 ? `${form.averageScore} 分` : '-'}
                               </span>
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="flex flex-wrap gap-1 max-w-[300px]">
+                                {form.weakWords && form.weakWords.length > 0 ? (
+                                  form.weakWords.map((item: any, i: number) => (
+                                    <span 
+                                      key={i} 
+                                      className="px-1.5 py-0.5 bg-red-50 text-red-600 rounded text-[10px] whitespace-nowrap"
+                                      title={`共錯 ${item.count} 次`}
+                                    >
+                                      {item.word}
+                                    </span>
+                                  ))
+                                ) : (
+                                  <span className="text-[10px] text-stone-300">無錯誤紀錄</span>
+                                )}
+                              </div>
                             </td>
                             <td className="px-6 py-4 text-right">
                               <div className="flex items-center justify-end gap-2">
@@ -466,6 +517,35 @@ export default function App() {
                   </table>
                 </div>
               </Card>
+
+              {/* AI Prompt Section */}
+              <div className="pt-4">
+                <button
+                  onClick={() => setShowPrompt(!showPrompt)}
+                  className="flex items-center gap-2 text-stone-400 hover:text-stone-600 transition-colors text-xs uppercase tracking-widest font-bold"
+                >
+                  <Code size={14} />
+                  {showPrompt ? '隱藏 AI 提示指令' : '查看 AI 提示指令'}
+                </button>
+                
+                <AnimatePresence>
+                  {showPrompt && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="mt-4 p-6 bg-stone-100 rounded-3xl border border-stone-200 font-mono text-[11px] text-stone-600 whitespace-pre-wrap leading-relaxed relative group">
+                        <div className="absolute top-4 right-4 text-stone-300 group-hover:text-stone-400 transition-colors">
+                          <Code size={16} />
+                        </div>
+                        {VOCAB_PROMPT_TEMPLATE.trim()}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
