@@ -240,7 +240,12 @@ export default function App() {
       if (data.formUrl) {
         setFormUrl(data.formUrl);
         fetchFormsHistory();
-        alert('Google 表單建立成功！網址已顯示在下方。');
+        
+        // 實作自動開啟表單
+        window.open(data.formUrl, '_blank');
+        
+        alert('✨ Google 表單建立成功！已為您自動開啟測驗頁面。\n\n' + 
+              '⚠️ 由於 Google API 限制，若要讓朋友看到統計圖表，請在該頁面點擊「設定」>「回覆」> 手動開啟「查看結果摘要」。');
       } else {
         alert('建立失敗：' + (data.error || '未知錯誤'));
       }

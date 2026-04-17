@@ -1,66 +1,53 @@
-# N5 Vocabulary Master
+# N5 Vocabulary Master 🎓
 
-<div align="center">
-
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-
-  <h1>Built with AI Studio</h2>
-
-  <p>The fastest path from prompt to production with Gemini.</p>
-
-  <a href="https://aistudio.google.com/apps">Start building</a>
-
-</div>
-
-這是一個基於 AI 的 JLPT N5 單字學習工具，能夠自動分析學習進度並生成 Google 表單測驗。
-
-**專案網址**: [https://ais-dev-kicu6tt5kmvvhoxsr6lhzu-253556148361.asia-east1.run.app](https://ais-dev-kicu6tt5kmvvhoxsr6lhzu-253556148361.asia-east1.run.app)
-
-## 🌟 核心功能
-
-- **AI 自動生成單字表**：使用 Gemini API，根據過去的錯誤記錄自動調整單字表，包含 40 個新單字與 10 個複習單字。
-- **一鍵建立 Google 表單**：自動建立具備自動評分功能的 Google 表單測驗。
-- **混合題型**：支援 90% 選擇題與 10% 簡答題，提升學習效果。
-- **學習記錄與排行榜**：所有測驗結果自動記錄於 Google 試算表，並在儀表板顯示排行榜。
-- **歷史表單管理**：追蹤所有已生成的表單，並即時查看已考人數。
-
-## 🛠️ 技術棧
-
-- **Frontend**: React (Vite), Tailwind CSS, Framer Motion, Lucide Icons.
-- **Backend**: Express.js (Node.js).
-- **AI**: Google Gemini API.
-- **Storage & Auth**: Google Sheets API, Google Forms API, Google OAuth 2.0.
-
-## 🚀 快速開始
-
-1. **環境變數設定**：
-   在 `.env` 檔案中設定以下變數：
-   - `GEMINI_API_KEY`: 您的 Gemini API 金鑰。
-   - `GOOGLE_CLIENT_ID`: Google OAuth 客戶端 ID。
-   - `GOOGLE_CLIENT_SECRET`: Google OAuth 客戶端密鑰。
-   - `APP_URL`: 應用程式的部署網址。
-
-2. **安裝依賴**：
-   ```bash
-   npm install
-   ```
-
-3. **啟動開發伺服器**：
-   ```bash
-   npm run dev
-   ```
-
-## 📝 使用說明
-
-1. 點擊「使用 Google 帳號登入」並授權相關權限。
-2. 點擊「生成 Google 表單」，系統將自動分析並建立測驗。
-3. 將生成的表單網址分享給學生或朋友。
-4. 在儀表板查看歷史記錄與成績。
-
-## 📄 專案文件
-
-- [Spec.md](./Spec.md): 詳細功能規格與資料結構。
-- [GEMINI.md](./GEMINI.md): AI 助手開發規範與專案上下文。
+這是一個專為 JLPT N5 學習者設計的 AI 智慧助教。它結合了 **Gemini AI** 的理解能力與 **Google Workspace** 的管理便利性，能根據學習者的表現自動生成客製化的測驗單字表與 Google 表單，打造循環式的學習閉環。
 
 ---
+
+## 🌟 核心亮點
+
+### 🧠 智慧單字生成
+- **動態調整**：系統會自動抓取最近期的測驗回覆，優先選取高錯誤率的單字要求 AI 重新出題。
+- **混合題型**：包含一般意思/讀音選擇題、填空簡答題，以及模擬 JLPT 真題的「情境語法題」。
+- **透明指令**：App 介面直接顯示 AI 提示指令 (Prompt)，讓你清楚知道 AI 是如何根據你的需求出題。
+
+### 📊 自動化測驗系統
+- **一鍵建表**：一秒完成 Google Form 測驗建立，自動設定配分、正確答案與考前讀本。
+- **身分驗證**：強制開啟電子郵件驗證與回覆副本傳送，確保數據真實且反饋即時。
+- **獨立管理**：每場測驗擁有專屬的 Google 試算表存儲資料，避免數據混亂且方便備份。
+
+### 📈 多維度數據分析
+- **歷史清單**：完整紀錄過去所有測驗的平均分數、考人數。
+- **弱項追蹤**：歷史列表直接列出每场測驗的 **Top 10 弱項單字**。
+- **動態排行榜**：內建冠軍與墊底排行榜（過濾測試用匿名帳號），激勵學習動機。
+
+---
+
+## 🛠️ 技術組件
+
+- **前端**: React (Vite), Tailwind CSS, Framer Motion.
+- **後端**: Express.js (Node.js).
+- **AI 驅動**: [Google Gemini API](https://ai.google.dev/).
+- **生產力套件**: Google Forms API, Google Sheets API, Google Drive API.
+- **驗證系統**: Google OAuth 2.0.
+
+---
+
+## 🚀 快速上手
+
+1. **登入**：點擊「使用 Google 帳號登入」。
+2. **生成**：點擊「生成 Google 表單」，系統會分析錯誤紀錄並請 AI 生成 50 個單字。
+3. **分享**：取得自動開啟的表單連結，分享給學習夥伴。
+4. **追蹤**：在儀表板查看大家的得分趨勢與常錯單字。
+
+---
+
+## 📂 專案核心文件
+
+- [**詳細規格書 (Spec.md)**](./Spec.md)：深入了解資料架構與功能邏輯。
+- [**開發規範 (GEMINI.md)**](./GEMINI.md)：AI 助手開發時的上下文與規範。
+
+---
+
 Made with ❤️ for JLPT Learners.
+Prompt your way to passing N5!

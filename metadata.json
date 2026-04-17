@@ -1,6 +1,6 @@
 {
   "name": "N5 Vocabulary Master",
-  "description": "A weekly Japanese N5 vocabulary learning and testing platform that uses AI to personalize your study path based on your mistakes.",
+  "description": "An AI-powered JLPT N5 study assistant that customizes vocabulary quizzes based on historic mistakes, integrates deeply with Google Forms and Sheets for automated tracking, and provides real-time group leaderboards and weak-point analysis.",
   "requestFramePermissions": [],
   "majorCapabilities": []
 }
