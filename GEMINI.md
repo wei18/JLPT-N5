@@ -42,9 +42,11 @@ A full-stack application (Express + Vite) that helps users study JLPT N5 vocabul
     - If Master Registry is missing, return `REGISTRY_NOT_FOUND` to trigger frontend reset.
 3. **UI Polish**: Modern Minimalist (Stone/Amber/Blue color palette, rounded-3xl corners).
 4. **Auth Flow**: Popup flow for Google Login.
+5. **Proposal Flow**: For any complex discussions or features that are put on hold (Pending), document the context, options, and decisions in `proposals/xxx_proposal.md`. Always refer to these files when resuming a specific topic.
 
 ## File Structure
 - `server.ts`: Express server, OAuth handling, Google API integrations, and analytics.
 - `src/App.tsx`: Main dashboard, history table, and UI logic.
 - `src/services/gemini.ts`: AI prompt templates and generation logic.
 - `Spec.md`: Product requirements and feature list.
+- `proposals/`: Directory for documenting pending discussions and architecture proposals.
