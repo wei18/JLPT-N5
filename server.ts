@@ -46,19 +46,55 @@ app.get('/api/auth/url', (req, res) => {
         'https://www.googleapis.com/auth/forms.responses.readonly',
         'https://www.googleapis.com/auth/userinfo.profile',
         'https://www.googleapis.com/auth/userinfo.email',
-        'https://www.googleapis.com/auth/drive.file',
       ],
       prompt: 'consent',
     });
     res.json({ url });
   } catch (error) {
     console.error('Auth URL error:', error);
-    res.status(500).json({ 
+    return res.status(500).json({ 
       error: 'Google OAuth 尚未設定。請在 AI Studio 的 Secrets 面板中設定 GOOGLE_CLIENT_ID 與 GOOGLE_CLIENT_SECRET。',
       details: error instanceof Error ? error.message : String(error)
     });
   }
 });
+
+const isGoogleNotFoundError = (error: any) => {
+  if (!error) return false;
+  
+  const check = (obj: any): boolean => {
+    if (!obj || typeof obj !== 'object') return false;
+    
+    // Check various common Google SDK error formats
+    const code = obj.code || obj.status || obj.response?.status || obj.response?.data?.error?.code || obj.error?.code;
+    const status = obj.status || obj.error?.status || obj.response?.data?.error?.status;
+    
+    if (code === 404 || code === '404' || status === 'NOT_FOUND') return true;
+    
+    // Recursively check response or error properties
+    if (obj.error && typeof obj.error === 'object' && obj.error !== obj) return check(obj.error);
+    if (obj.response && typeof obj.response === 'object') return check(obj.response);
+    if (obj.data && typeof obj.data === 'object') return check(obj.data);
+    
+    return false;
+  };
+  
+  if (check(error)) return true;
+  
+  const message = String(error.message || error || '').toUpperCase();
+  return message.includes('NOT_FOUND') || message.includes('404');
+};
+
+// Helper for parallel execution with limit
+const concurrentMap = async <T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> => {
+  const results: R[] = [];
+  for (let i = 0; i < items.length; i += limit) {
+    const chunk = items.slice(i, i + limit);
+    const chunkResults = await Promise.all(chunk.map(fn));
+    results.push(...chunkResults);
+  }
+  return results;
+};
 
 // 分析試算表中的錯誤單字與排行榜
 app.post('/api/analyze', async (req, res) => {
@@ -68,6 +104,7 @@ app.post('/api/analyze', async (req, res) => {
   const { spreadsheetId } = req.body;
   if (!spreadsheetId) return res.json({ mistakes: [], leaderboard: null });
 
+  console.time('Analysis');
   try {
     const client = getOAuth2Client();
     const tokens = JSON.parse(tokensStr);
@@ -84,77 +121,66 @@ app.post('/api/analyze', async (req, res) => {
       });
       registryRows = registryRes.data.values || [];
     } catch (error: any) {
-      // 如果試算表被刪除或找不到，返回空資料
-      if (error.code === 404 || (error.message && error.message.includes('NOT_FOUND'))) {
+      if (isGoogleNotFoundError(error)) {
         console.warn('Master Registry spreadsheet not found:', spreadsheetId);
         return res.json({ mistakes: [], leaderboard: null, error: 'REGISTRY_NOT_FOUND' });
       }
-      throw error;
+      console.error('Registry fetch error:', error);
+      return res.status(500).json({ error: 'Failed to access Master Registry' });
     }
 
     if (registryRows.length === 0) {
+      console.timeEnd('Analysis');
       return res.json({ mistakes: [], leaderboard: null });
     }
 
     // 取得最近 10 個表單
-    const recentForms = registryRows
-      .slice(-10)
-      .reverse();
-
+    const recentForms = registryRows.slice(-10).reverse();
     const allMistakeCounts: { [key: string]: number } = {};
     const allScores: { email: string, score: number, date: string }[] = [];
 
-    // 2. 遍歷每個表單，直接從 Forms API 讀取回覆
-    for (const row of recentForms) {
+    // 2. 平行化分析表單，限制併發數為 3 以防觸發 Rate Limit
+    await concurrentMap(recentForms, 3, async (row) => {
       const formId = row[0];
       const sessionDate = row.length === 5 ? row[4] : row[3];
       
       try {
-        // 取得表單結構（為了知道正確答案）
-        const formMetadata = await formsApi.forms.get({ formId });
+        // 並行取得表單結構與回覆
+        const [formMetadata, formsRes] = await Promise.all([
+          formsApi.forms.get({ formId }),
+          formsApi.forms.responses.list({ formId })
+        ]);
+
         const questions = formMetadata.data.items || [];
-        
-        // 建立問題 ID 到正確答案與單字的對照表
         const questionMap = new Map();
         questions.forEach(item => {
           if (item.questionItem?.question) {
             const q = item.questionItem.question;
             const correctAnswers = q.grading?.correctAnswers?.answers?.map(a => a.value) || [];
-            
-            // 從標題提取單字 (例如 "1. 單字 (讀音) 的意思是什麼？" -> "單字")
             const title = item.title || '';
             const cleanTitle = title.replace(/^\d+\.\s*/, '');
             const wordMatch = cleanTitle.match(/^(.+?)\s*\(/);
-            const word = wordMatch ? wordMatch[1] : cleanTitle.split(' ')[0];
+            const word = wordMatch ? wordMatch[1] : (cleanTitle.includes(' ') ? cleanTitle.split(' ')[0] : cleanTitle);
 
-            questionMap.set(item.questionItem.question.questionId, {
-              word,
-              correctAnswers
-            });
+            questionMap.set(q.questionId, { word, correctAnswers });
           }
         });
 
-        // 讀取該表單的所有回覆
-        const responsesRes = await formsApi.forms.responses.list({ formId });
-        const responses = responsesRes.data.responses || [];
-
+        const responses = formsRes.data.responses || [];
         responses.forEach(resp => {
-          // 嘗試取得 Email (如果表單有收集)
           const email = resp.respondentEmail;
-          
-          // 排除匿名或非特定帳號的測試資料
           if (!email || email === 'anonymous') return;
 
-          // 記錄分數
           const totalScore = resp.totalScore || 0;
           allScores.push({ email, score: totalScore, date: sessionDate });
 
-          // 檢查答案找出錯誤
           Object.entries(resp.answers || {}).forEach(([qId, answerObj]: [string, any]) => {
             const qInfo = questionMap.get(qId);
             if (qInfo) {
               const userAnswers = answerObj.textAnswers?.answers?.map((a: any) => a.value) || [];
-              const isCorrect = qInfo.correctAnswers.some((ca: string) => userAnswers.includes(ca));
+              const isCorrect = qInfo.correctAnswers.some((ca: string) => 
+                userAnswers.some(ua => ua && ua.trim() === ca.trim())
+              );
               
               if (!isCorrect) {
                 allMistakeCounts[qInfo.word] = (allMistakeCounts[qInfo.word] || 0) + 1;
@@ -162,10 +188,14 @@ app.post('/api/analyze', async (req, res) => {
             }
           });
         });
-      } catch (e) {
-        console.error(`Failed to analyze form ${formId}:`, e);
+      } catch (e: any) {
+        if (isGoogleNotFoundError(e)) {
+          console.warn(`Form ${formId} not found in Drive, skipping analysis.`);
+        } else {
+          console.error(`Failed to analyze form ${formId}:`, e);
+        }
       }
-    }
+    });
 
     // 3. 找出前 50 名錯誤單字
     const mistakes = Object.entries(allMistakeCounts)
@@ -187,10 +217,12 @@ app.post('/api/analyze', async (req, res) => {
       };
     }
 
-    res.json({ mistakes, leaderboard });
+    console.timeEnd('Analysis');
+    return res.json({ mistakes, leaderboard });
   } catch (error) {
+    console.timeEnd('Analysis');
     console.error('Analysis error:', error);
-    res.status(500).json({ error: 'Failed to analyze spreadsheet' });
+    return res.status(500).json({ error: 'Failed to analyze spreadsheet' });
   }
 });
 
@@ -208,42 +240,60 @@ app.post('/api/forms/create', async (req, res) => {
     const sheets = google.sheets({ version: 'v4', auth: client });
 
     // 1. 建立表單 (僅設定標題)
-    // 使用時間戳記確保 Google Drive 上的檔名不重複
-    const uniqueTitle = `${title} (${new Date().getTime()})`;
+    // 雖然不使用 Drive API，但 Forms API 的 info.title 就可以決定其報表抬頭。
+    // 在大部分情況下，這也會同步更新 Google Drive 上的檔案名稱。
+    const displayTitle = title ? (title.length > 255 ? title.substring(0, 252) + "..." : title) : "N5 Vocabulary Quiz";
+    const timestampedTitle = `${displayTitle} (${new Date().getTime()})`;
+    
+    console.log('Creating Google Form with title:', timestampedTitle);
+    
     const newForm = await forms.forms.create({
       requestBody: { 
-        info: { 
-          title: uniqueTitle
-        } 
+        info: { title: timestampedTitle } 
       }
     });
-    const formId = newForm.data.formId;
+    
+    const formId = newForm.data.formId!;
+    const formUrl = newForm.data.responderUri;
+    console.log('Form created with ID:', formId);
 
     // 2. 設定為測驗、收集 Email 並加入考前說明
-    const description = "📚 N5 單字表 (考前預習):\n\n" + 
-      vocabulary.map((v: any, i: number) => {
-        let text = `${i + 1}. ${v.word} (${v.reading}) - ${v.meaning}`;
-        if (v.example) text += `\n   例句：${v.example}`;
-        return text;
-      }).join('\n\n');
+    const validVocabulary = (vocabulary || []).filter((v: any) => v && v.word && v.reading && v.meaning);
+    
+    if (validVocabulary.length === 0) {
+      console.warn('No valid vocabulary items found to create form');
+      return res.status(400).json({ error: '單字表內容不完整，無法建立表單。' });
+    }
 
-    const requests = [
+    // Google Forms 描述上限約 4096 字元，需進行截斷以防 400 錯誤
+    let description = "📚 N5 單字表 (考前預習):\n\n";
+    for (let i = 0; i < validVocabulary.length; i++) {
+        const v = validVocabulary[i];
+        let itemText = `${i + 1}. ${v.word} (${v.reading}) - ${v.meaning}`;
+        if (v.example) itemText += `\n   例句：${v.example}`;
+        itemText += '\n\n';
+        
+        if ((description + itemText).length > 4000) {
+            description += "...(餘下單字請見測驗題目內容)";
+            break;
+        }
+        description += itemText;
+    }
+
+    const requests: any[] = [
       {
         updateSettings: {
           settings: { 
             quizSettings: { isQuiz: true },
-            emailCollectionType: 'VERIFIED',
-            responseSettings: {
-              sendResponseCopy: 'ALWAYS'
-            }
+            emailCollectionType: 'VERIFIED'
           },
-          updateMask: 'quizSettings.isQuiz,emailCollectionType,responseSettings.sendResponseCopy'
+          updateMask: 'quizSettings.isQuiz,emailCollectionType'
         }
       },
       {
         updateFormInfo: {
           info: {
-            title: title,
+            title: timestampedTitle,
             description
           },
           updateMask: 'title,description'
@@ -251,51 +301,29 @@ app.post('/api/forms/create', async (req, res) => {
       }
     ];
 
-    // 3. 加入題目 (混合題型)
-    // 10% 填空題 (Short Answer), 80% 選擇題 (Multiple Choice), 10% (5題) N5 考試題型
-    vocabulary.forEach((item: any, index: number) => {
+    // 3. 加入題目 (混合題型: 90% RADIO, 10% TEXT)
+    validVocabulary.forEach((item: any, index: number) => {
       const questionNumber = index + 1;
+      const pointValue = 2;
       
+      const randType = Math.random();
+      const isShortAnswer = randType < 0.1; // 10% 機率使用短問答
+
       if (item.isExamStyle && item.examQuestionText) {
         // N5 考試題型：填充句子
-        const options = [item.word, ...item.distractors].sort(() => 0.5 - Math.random());
-        requests.push({
-          createItem: {
-            item: {
-              title: `${questionNumber}. 請選擇最適合填入空格的單字：\n\n${item.examQuestionText}`,
-              questionItem: {
-                question: {
-                  required: true,
-                  grading: { 
-                    pointValue: 2, 
-                    correctAnswers: { answers: [{ value: item.word }] } 
-                  },
-                  choiceQuestion: {
-                    type: 'RADIO',
-                    options: options.map(o => ({ value: o }))
-                  }
-                }
-              }
-            },
-            location: { index }
-          }
-        } as any);
-      } else {
-        const isShortAnswer = Math.random() < 0.1;
-
         if (isShortAnswer) {
           requests.push({
             createItem: {
               item: {
-                title: `${questionNumber}. ${item.word} (${item.meaning}) 的假名是什麼？`,
+                title: `${questionNumber}. 請填入最適合空格的讀音（如「ぎんこう」）：${item.examQuestionText}`,
                 questionItem: {
                   question: {
                     required: true,
                     grading: { 
-                      pointValue: 2, 
+                      pointValue, 
                       correctAnswers: { answers: [{ value: item.reading }] } 
                     },
-                    textQuestion: {} // 簡答題
+                    textQuestion: {} // SHORT_ANSWER
                   }
                 }
               },
@@ -303,25 +331,17 @@ app.post('/api/forms/create', async (req, res) => {
             }
           } as any);
         } else {
-          // 選擇題：隨機選取 3 個錯誤選項
-          const otherWords = vocabulary.filter((v: any) => v.word !== item.word);
-          const distractors = otherWords
-            .sort(() => 0.5 - Math.random())
-            .slice(0, 3)
-            .map((v: any) => v.meaning);
-          
-          const options = [item.meaning, ...distractors].sort(() => 0.5 - Math.random());
-
+          const options = [item.reading, ...item.distractors].sort(() => 0.5 - Math.random());
           requests.push({
             createItem: {
               item: {
-                title: `${questionNumber}. ${item.word} (${item.reading}) 的意思是什麼？`,
+                title: `${questionNumber}. 請選擇最適合填入空格的答案：${item.examQuestionText}`,
                 questionItem: {
                   question: {
                     required: true,
                     grading: { 
-                      pointValue: 2, 
-                      correctAnswers: { answers: [{ value: item.meaning }] } 
+                      pointValue, 
+                      correctAnswers: { answers: [{ value: item.reading }] } 
                     },
                     choiceQuestion: {
                       type: 'RADIO',
@@ -334,13 +354,188 @@ app.post('/api/forms/create', async (req, res) => {
             }
           } as any);
         }
+      } else {
+        // 分配題型：讀音檢測 (40%), 意思檢測 (40%), 漢字檢測 (20%)
+        const rand = Math.random();
+        
+        if (rand < 0.4) {
+          // 題型 1: 漢字 -> 讀音 (読み)
+          if (isShortAnswer) {
+             requests.push({
+              createItem: {
+                item: {
+                  title: `${questionNumber}. 「${item.word}」的讀音（ひらがな）是什麼？`,
+                  questionItem: {
+                    question: {
+                      required: true,
+                      grading: { 
+                        pointValue, 
+                        correctAnswers: { answers: [{ value: item.reading }] } 
+                      },
+                      textQuestion: {}
+                    }
+                  }
+                },
+                location: { index }
+              }
+            } as any);
+          } else {
+            const distractors = item.distractors || []; 
+            const options = [item.reading, ...distractors].slice(0, 4).sort(() => 0.5 - Math.random());
+            requests.push({
+              createItem: {
+                item: {
+                  title: `${questionNumber}. 「${item.word}」的讀音（ひらがな）是什麼？`,
+                  questionItem: {
+                    question: {
+                      required: true,
+                      grading: { 
+                        pointValue, 
+                        correctAnswers: { answers: [{ value: item.reading }] } 
+                      },
+                      choiceQuestion: {
+                        type: 'RADIO',
+                        options: options.map(o => ({ value: o }))
+                      }
+                    }
+                  }
+                },
+                location: { index }
+              }
+            } as any);
+          }
+        } else if (rand < 0.8) {
+          // 題型 2: 讀音 -> 意思 (意味)
+          if (isShortAnswer) {
+             requests.push({
+              createItem: {
+                item: {
+                  title: `${questionNumber}. 「${item.reading}」的意思是什麼？`,
+                  questionItem: {
+                    question: {
+                      required: true,
+                      grading: { 
+                        pointValue, 
+                        correctAnswers: { answers: [{ value: item.meaning }] } 
+                      },
+                      textQuestion: {}
+                    }
+                  }
+                },
+                location: { index }
+              }
+            } as any);
+          } else {
+            const otherWords = validVocabulary.filter((v: any) => v.word !== item.word);
+            const distractors = otherWords.sort(() => 0.5 - Math.random()).slice(0, 3).map((v: any) => v.meaning);
+            const options = [item.meaning, ...distractors].sort(() => 0.5 - Math.random());
+            requests.push({
+              createItem: {
+                item: {
+                  title: `${questionNumber}. 「${item.reading}」的意思是什麼？`,
+                  questionItem: {
+                    question: {
+                      required: true,
+                      grading: { 
+                        pointValue, 
+                        correctAnswers: { answers: [{ value: item.meaning }] } 
+                      },
+                      choiceQuestion: {
+                        type: 'RADIO',
+                        options: options.map(o => ({ value: o }))
+                      }
+                    }
+                  }
+                },
+                location: { index }
+              }
+            } as any);
+          }
+        } else {
+          // 題型 3: 讀音 -> 漢字 (漢字表現) - 對華人較有鑑別度
+          if (isShortAnswer) {
+             requests.push({
+              createItem: {
+                item: {
+                  title: `${questionNumber}. 讀音為「${item.reading}」的漢字單字（如「先生」）是什麼？`,
+                  questionItem: {
+                    question: {
+                      required: true,
+                      grading: { 
+                        pointValue, 
+                        correctAnswers: { answers: [{ value: item.word }] } 
+                      },
+                      textQuestion: {}
+                    }
+                  }
+                },
+                location: { index }
+              }
+            } as any);
+          } else {
+            const otherWords = validVocabulary.filter((v: any) => v.word !== item.word);
+            const distractors = otherWords.sort(() => 0.5 - Math.random()).slice(0, 3).map((v: any) => v.word);
+            const options = [item.word, ...distractors].sort(() => 0.5 - Math.random());
+            requests.push({
+              createItem: {
+                item: {
+                  title: `${questionNumber}. 讀音是「${item.reading}」的漢字單字是哪一個？`,
+                  questionItem: {
+                    question: {
+                      required: true,
+                      grading: { 
+                        pointValue, 
+                        correctAnswers: { answers: [{ value: item.word }] } 
+                      },
+                      choiceQuestion: {
+                        type: 'RADIO',
+                        options: options.map(o => ({ value: o }))
+                      }
+                    }
+                  }
+                },
+                location: { index }
+              }
+            } as any);
+          }
+        }
       }
     });
 
-    await forms.forms.batchUpdate({
-      formId: formId!,
-      requestBody: { requests }
-    });
+    console.log('Sending batchUpdate with requests count:', requests.length);
+    try {
+      await forms.forms.batchUpdate({
+        formId: formId!,
+        requestBody: { requests }
+      });
+      console.log('batchUpdate successful');
+    } catch (batchError: any) {
+      const errorMsg = JSON.stringify(batchError.response?.data || batchError);
+      console.error('batchUpdate failed. Specific error:', errorMsg);
+
+      // 如果失敗，嘗試降級設定（例如某些帳號不支援 VERIFIED + ALWAYS）
+      console.log('Attempting fallback: Removing restrictive settings...');
+      const fallbackRequests = requests.map(r => {
+        if (r.updateSettings) {
+          return {
+            updateSettings: {
+              settings: { 
+                quizSettings: { isQuiz: true },
+                // 降級：不強制驗證，由用戶手動決定
+              },
+              updateMask: 'quizSettings.isQuiz'
+            }
+          };
+        }
+        return r;
+      });
+
+      await forms.forms.batchUpdate({
+        formId: formId!,
+        requestBody: { requests: fallbackRequests }
+      });
+      console.log('Fallback batchUpdate successful');
+    }
 
     // 4. 建立專屬試算表並記錄到 Master Registry
     if (spreadsheetId) {
@@ -356,11 +551,12 @@ app.post('/api/forms/create', async (req, res) => {
         });
         rows = registryRes.data.values || [];
       } catch (error: any) {
-        if (error.code === 404 || (error.message && error.message.includes('NOT_FOUND'))) {
+        if (isGoogleNotFoundError(error)) {
           console.warn('Master Registry not found during form creation:', spreadsheetId);
           return res.status(404).json({ error: 'REGISTRY_NOT_FOUND' });
         }
-        throw error;
+        console.error('Registry access error during creation:', error);
+        return res.status(500).json({ error: 'Failed to access Master Registry' });
       }
 
       const todayPrefix = now.toISOString().split('T')[0];
@@ -386,7 +582,7 @@ app.post('/api/forms/create', async (req, res) => {
       // 寫入單字表到新試算表
       const vocabValues = [
         ['Word', 'Reading', 'Meaning', 'Example'],
-        ...vocabulary.map((v: any) => [v.word, v.reading, v.meaning, v.example])
+        ...validVocabulary.map((v: any) => [v.word, v.reading, v.meaning, v.example])
       ];
       await sheets.spreadsheets.values.update({
         spreadsheetId: sessionSheetId,
@@ -414,9 +610,16 @@ app.post('/api/forms/create', async (req, res) => {
         sessionSheetId
       });
     }
-  } catch (error) {
-    console.error('Error creating form:', error);
-    res.status(500).json({ error: 'Failed to create form' });
+  } catch (error: any) {
+    console.error('Error creating form - full details:', JSON.stringify(error, null, 2));
+    if (error.response && error.response.data) {
+      console.error('Google API Error Data:', JSON.stringify(error.response.data, null, 2));
+    }
+
+    return res.status(500).json({ 
+      error: 'Failed to create form', 
+      details: error.message || String(error) 
+    });
   }
 });
 
@@ -451,7 +654,7 @@ app.get(['/auth/callback', '/auth/callback/'], async (req, res) => {
     `);
   } catch (error) {
     console.error('Error exchanging code for tokens:', error);
-    res.status(500).send('Authentication failed');
+    return res.status(500).send('Authentication failed');
   }
 });
 
@@ -466,10 +669,18 @@ app.get('/api/user', async (req, res) => {
     const tokens = JSON.parse(tokensStr);
     client.setCredentials(tokens);
     const oauth2 = google.oauth2({ version: 'v2', auth: client });
-    const userInfo = await oauth2.userinfo.get();
-    res.json(userInfo.data);
+    try {
+      const userInfo = await oauth2.userinfo.get();
+      if (!userInfo || !userInfo.data) {
+        throw new Error('No user data returned from Google');
+      }
+      res.json(userInfo.data);
+    } catch (err) {
+      console.error('User info fetch error:', err);
+      return res.status(401).json({ error: 'Invalid tokens' });
+    }
   } catch (error) {
-    res.status(401).json({ error: 'Invalid tokens' });
+    return res.status(401).json({ error: 'Invalid tokens' });
   }
 });
 
@@ -492,7 +703,22 @@ app.get('/api/forms/list', async (req, res) => {
         range: 'Forms List!A2:E',
       });
 
-      const forms = await Promise.all((response.data.values || []).slice(0, 20).map(async row => {
+      const values = response.data.values || [];
+      
+      // 根據日期排序（第 5 欄或第 4 欄是日期），最新的在最前面
+      const sortedRows = [...values].sort((a, b) => {
+        const getDate = (row: any) => {
+          const raw = row.length === 5 ? row[4] : row[3];
+          if (!raw) return 0;
+          const parsed = new Date(raw);
+          return isNaN(parsed.getTime()) ? 0 : parsed.getTime();
+        };
+        return getDate(b) - getDate(a);
+      });
+
+      const formsApi = google.forms({ version: 'v1', auth: client });
+
+      const formsResults = await Promise.all(sortedRows.slice(0, 30).map(async row => {
         const id = row[0];
         let sessionSheetId = null;
         let date = 'Unknown';
@@ -505,9 +731,13 @@ app.get('/api/forms/list', async (req, res) => {
           date = row[3];
         }
 
+        // --- 強化：自動找回消失的試算表按鈕 (本邏輯需 Drive API，若無則跳過) ---
+        // 如果註冊表沒紀錄 sessionSheetId，則無按鈕
+
         let responseCount = 0;
         let averageScore = 0;
         let weakWords: { word: string, count: number }[] = [];
+        let isStale = false;
 
         try {
           // 取得表單結構（為了知道正確答案與問題對應的單字）
@@ -560,11 +790,12 @@ app.get('/api/forms/list', async (req, res) => {
               .slice(0, 10);
           }
         } catch (e: any) {
-          // 如果表單被刪除，忽略錯誤
-          if (e.code === 404 || (e.message && e.message.includes('NOT_FOUND'))) {
-            console.warn(`Form ${id} not found, skipping.`);
+          // 如果表單被刪除，我們依然回傳基本資訊，讓用戶能在儀表板點擊「刪除」來清理 Registry 紀錄
+          isStale = true;
+          if (isGoogleNotFoundError(e)) {
+            console.warn(`Form ${id} not found in Drive, fallback to registry info.`);
           } else {
-            console.error(`Failed to fetch basic info for form ${id}:`, e);
+            console.error(`Failed to fetch info for form ${id}:`, e);
           }
         }
 
@@ -576,20 +807,33 @@ app.get('/api/forms/list', async (req, res) => {
           sessionSheetId,
           responseCount,
           averageScore: Math.round(averageScore),
-          weakWords
+          weakWords,
+          isStale
         };
       }));
 
+      const formsRaw = formsResults.filter(f => f !== null && f !== undefined);
+      
+      // 根據您的需求：如果已經在雲端刪除（isStale），就不要出現在歷史列表標題中。
+      const forms = formsRaw.filter(f => !f.isStale);
+      
+      // 二次排序確保回傳給前端的順序也是正確的
+      forms.sort((a: any, b: any) => {
+        const timeA = new Date(a.date).getTime();
+        const timeB = new Date(b.date).getTime();
+        return (isNaN(timeB) ? 0 : timeB) - (isNaN(timeA) ? 0 : timeA);
+      });
       res.json({ forms });
     } catch (error: any) {
       // If the error is because the sheet doesn't exist yet or was deleted
-      if (error.code === 404 || (error.message && error.message.includes('NOT_FOUND'))) {
+      if (isGoogleNotFoundError(error)) {
         return res.json({ forms: [], error: 'REGISTRY_NOT_FOUND' });
       }
       if (error.message && error.message.includes('Unable to parse range')) {
         return res.json({ forms: [] });
       }
-      throw error;
+      console.error('Forms list outer error:', error);
+      return res.status(500).json({ error: 'Failed to fetch forms list' });
     }
   } catch (error) {
     console.error('Error fetching forms list:', error);
@@ -602,22 +846,21 @@ app.post('/api/forms/delete', async (req, res) => {
   if (!tokensStr) return res.status(401).json({ error: 'Not authenticated' });
   const { spreadsheetId, formId } = req.body;
 
+  if (!spreadsheetId || !formId) {
+    return res.status(400).json({ error: 'Missing spreadsheetId or formId' });
+  }
+
   try {
     const client = getOAuth2Client();
     const tokens = JSON.parse(tokensStr);
     client.setCredentials(tokens);
     const sheets = google.sheets({ version: 'v4', auth: client });
-    const drive = google.drive({ version: 'v3', auth: client });
 
-    // 1. 從 Google Drive 刪除表單檔案
-    try {
-      await drive.files.delete({ fileId: formId });
-    } catch (e) {
-      console.error('Failed to delete file from Drive:', e);
-      // 即使 Drive 刪除失敗（例如檔案已被手動刪除），我們仍繼續清理試算表紀錄
-    }
+    console.log(`Deleting form ${formId} from registry ${spreadsheetId}`);
 
-    // 2. 讀取所有表單紀錄並找出對應的試算表 ID
+    // 1. (已移除 Drive API 刪除檔案邏輯，僅清理註冊表)
+
+    // 2. 讀取所有表單紀錄
     let values: any[] = [];
     try {
       const response = await sheets.spreadsheets.values.get({
@@ -626,44 +869,56 @@ app.post('/api/forms/delete', async (req, res) => {
       });
       values = response.data.values || [];
     } catch (error: any) {
-      if (error.code === 404 || (error.message && error.message.includes('NOT_FOUND'))) {
+      if (isGoogleNotFoundError(error)) {
         console.warn('Master Registry not found during form deletion:', spreadsheetId);
         return res.json({ success: true, warning: 'REGISTRY_NOT_FOUND' });
       }
-      throw error;
+      console.error('Registry access error during deletion:', error);
+      return res.status(500).json({ error: 'Failed to access Master Registry' });
     }
 
-    const targetRow = values.find(row => row[0] === formId);
-    const sessionSheetId = (targetRow && targetRow.length === 5) ? targetRow[3] : null;
+    // 找出對應的紀錄列 (更寬鬆的匹配，防止欄位偏移或格式問題)
+    const targetRowIndex = values.findIndex(row => {
+      if (!Array.isArray(row)) return false;
+      // 只要該行任一欄位完全等於 formId 就認定為目標
+      return row.some(cell => String(cell || '').trim() === String(formId).trim());
+    });
+    
+    if (targetRowIndex !== -1) {
+      const targetRow = values[targetRowIndex];
+      // 嘗試從該列中找出寬度大於 20 的 ID（通常就是試算表 ID）
+      const sessionSheetId = targetRow.find((cell: any) => String(cell).length > 20 && String(cell) !== String(formId));
 
-    // 3. 從 Google Drive 刪除專屬試算表
-    if (sessionSheetId) {
-      try {
-        await drive.files.delete({ fileId: sessionSheetId });
-      } catch (e) {
-        console.error('Failed to delete session sheet from Drive:', e);
+      // 3. (已移除 Drive API 刪除檔案邏輯)
+
+      // 過濾掉該紀錄
+      const newValues = values.filter((_, idx) => idx !== targetRowIndex);
+
+      // 4. 使用更加徹底的方式刷新 Registry
+      // 清除一個較大區域
+      await sheets.spreadsheets.values.clear({
+        spreadsheetId,
+        range: 'Forms List!A1:E2000',
+      });
+
+      // 寫回新資料
+      if (newValues.length > 0) {
+        await sheets.spreadsheets.values.update({
+          spreadsheetId,
+          range: 'Forms List!A1',
+          valueInputOption: 'USER_ENTERED',
+          requestBody: { values: newValues }
+        });
       }
+      console.log(`Successfully removed form ${formId} from registry.`);
+    } else {
+      console.warn(`Form ID ${formId} not found in registry rows.`);
     }
-
-    const newValues = values.filter(row => row[0] !== formId);
-
-    // 4. 覆寫 Master Registry
-    await sheets.spreadsheets.values.clear({
-      spreadsheetId,
-      range: 'Forms List!A:E',
-    });
-
-    await sheets.spreadsheets.values.update({
-      spreadsheetId,
-      range: 'Forms List!A1',
-      valueInputOption: 'USER_ENTERED',
-      requestBody: { values: newValues }
-    });
 
     res.json({ success: true });
-  } catch (error) {
-    console.error('Error deleting form:', error);
-    res.status(500).json({ error: 'Failed to delete form' });
+  } catch (error: any) {
+    console.error('Error during form deletion:', error);
+    res.status(500).json({ error: 'Failed to delete form record', details: error.message });
   }
 });
 
@@ -706,7 +961,7 @@ app.post('/api/sheets/init', async (req, res) => {
     res.json({ spreadsheetId: spreadsheet.data.spreadsheetId });
   } catch (error) {
     console.error('Error creating spreadsheet:', error);
-    res.status(500).json({ error: 'Failed to create spreadsheet' });
+    return res.status(500).json({ error: 'Failed to create spreadsheet' });
   }
 });
 
@@ -724,6 +979,15 @@ if (process.env.NODE_ENV !== 'production') {
     res.sendFile(path.join(distPath, 'index.html'));
   });
 }
+
+// Global error handler
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error('Unhandled server error:', err);
+  res.status(500).json({ 
+    error: 'Internal server error',
+    message: process.env.NODE_ENV === 'production' ? 'An unexpected error occurred' : err.message
+  });
+});
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on http://localhost:${PORT}`);

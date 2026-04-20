@@ -123,6 +123,13 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ spreadsheetId })
       });
+      
+      if (!res.ok) {
+        const text = await res.text();
+        console.error('Analysis API returned non-OK status:', res.status, text.substring(0, 500));
+        throw new Error(`Analysis failed with status ${res.status}`);
+      }
+
       const data = await res.json();
       
       if (data.error === 'REGISTRY_NOT_FOUND') {
@@ -139,9 +146,15 @@ export default function App() {
   };
 
   const login = async () => {
-    const res = await fetch('/api/auth/url');
-    const { url } = await res.json();
-    window.open(url, 'google_auth', 'width=600,height=700');
+    try {
+      const res = await fetch('/api/auth/url');
+      if (!res.ok) throw new Error('Failed to get auth URL');
+      const { url } = await res.json();
+      window.open(url, 'google_auth', 'width=600,height=700');
+    } catch (e) {
+      console.error("Login failed", e);
+      alert('登入失敗，請確認網路連線。');
+    }
   };
 
   const logout = async () => {
@@ -154,6 +167,10 @@ export default function App() {
     if (!spreadsheetId) return;
     try {
       const res = await fetch(`/api/forms/list?spreadsheetId=${spreadsheetId}`);
+      if (!res.ok) {
+        if (res.status === 401) return;
+        throw new Error(`Failed to fetch history: ${res.status}`);
+      }
       const data = await res.json();
 
       if (data.error === 'REGISTRY_NOT_FOUND') {
@@ -203,6 +220,7 @@ export default function App() {
       let currentId = spreadsheetId;
       if (!currentId) {
         const initRes = await fetch('/api/sheets/init', { method: 'POST' });
+        if (!initRes.ok) throw new Error(`初始化失敗: ${initRes.status}`);
         const initData = await initRes.json();
         if (initData.spreadsheetId) {
           currentId = initData.spreadsheetId;
@@ -218,6 +236,11 @@ export default function App() {
 
       // 3. Generate vocabulary with AI
       const words = await generateWeeklyVocabulary(mistakes || []);
+      if (!words || words.length === 0) {
+        alert('AI 尚未生成任何單字，請稍後再試。');
+        setGenerating(false);
+        return;
+      }
       setVocabulary(words);
 
       // 4. Create Google Form
@@ -247,7 +270,7 @@ export default function App() {
         alert('✨ Google 表單建立成功！已為您自動開啟測驗頁面。\n\n' + 
               '⚠️ 由於 Google API 限制，若要讓朋友看到統計圖表，請在該頁面點擊「設定」>「回覆」> 手動開啟「查看結果摘要」。');
       } else {
-        alert('建立失敗：' + (data.error || '未知錯誤'));
+        alert('建立失敗：' + (data.error || '未知錯誤') + (data.details ? `\n\n詳情: ${data.details}` : ''));
       }
     } catch (e) {
       console.error(e);
@@ -438,7 +461,9 @@ export default function App() {
                           <tr key={form.id} className="hover:bg-stone-50/50 transition-colors group">
                             <td className="px-6 py-4">
                               <div className="flex flex-col">
-                                <span className="text-sm font-medium text-stone-900">{form.title}</span>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm font-medium text-stone-900">{form.title}</span>
+                                </div>
                                 <span className="text-[10px] text-stone-400 font-mono truncate max-w-[200px]">{form.id}</span>
                               </div>
                             </td>
