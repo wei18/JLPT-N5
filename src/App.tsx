@@ -13,7 +13,6 @@ import {
   FileSpreadsheet,
   Award,
   AlertCircle,
-  Trash2,
   ExternalLink,
   Clock,
   Code
@@ -192,25 +191,6 @@ export default function App() {
     setFormsHistory([]);
   };
 
-  const deleteForm = async (formId: string) => {
-    if (!confirm('確定要刪除此表單記錄嗎？')) return;
-    try {
-      const res = await fetch('/api/forms/delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ spreadsheetId, formId })
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setFormsHistory(prev => prev.filter(f => f.id !== formId));
-      } else if (data.warning === 'REGISTRY_NOT_FOUND') {
-        handleStaleRegistry();
-      }
-    } catch (e) {
-      console.error("Failed to delete form", e);
-    }
-  };
-
   // --- Logic ---
   const generateWeeklyForm = async () => {
     setGenerating(true);
@@ -383,48 +363,58 @@ export default function App() {
                 <Card className="flex flex-col justify-between">
                   <div className="space-y-4">
                     <div className="w-12 h-12 bg-blue-50 rounded-2xl flex items-center justify-center">
-                      <History className="text-blue-600" size={24} />
+                      <Award className="text-blue-600" size={24} />
                     </div>
-                    <h2 className="text-2xl font-serif font-bold">學習記錄與排行榜</h2>
+                    <h2 className="text-2xl font-serif font-bold">巔峰榜單 (Hall of Fame)</h2>
                     <p className="text-stone-500">
-                      所有朋友的測驗結果都會自動彙整，並在此顯示排行榜。
+                      累積拿下前三名的次數統計，誰才是真正的單字王？
                     </p>
                   </div>
-                  <div className="mt-8 grid grid-cols-2 gap-2">
-                    <div className="bg-stone-50 rounded-xl p-4 text-center">
-                      <span className="block text-xs text-stone-400 uppercase tracking-widest mb-1">本週冠軍 🏆</span>
-                      <div className="flex flex-col gap-1">
-                        {leaderboard?.champions?.length > 0 ? (
-                          leaderboard.champions.map((email: string) => (
-                            <span key={email} className="text-sm font-bold truncate" title={email}>
-                              {email.split('@')[0]}
+                  
+                  <div className="mt-8 space-y-3">
+                    {leaderboard?.hallOfFame && leaderboard.hallOfFame.length > 0 ? (
+                      leaderboard.hallOfFame.map((player: any, idx: number) => (
+                        <div key={player.email} className="flex items-center justify-between p-3 bg-stone-50 rounded-xl">
+                          <div className="flex items-center gap-3">
+                            <span className={`w-6 h-6 flex items-center justify-center rounded-full text-xs font-bold ${
+                              idx === 0 ? 'bg-amber-100 text-amber-700' : 
+                              idx === 1 ? 'bg-stone-200 text-stone-600' :
+                              idx === 2 ? 'bg-orange-100 text-orange-700' :
+                              'bg-stone-100 text-stone-400'
+                            }`}>
+                              {idx + 1}
                             </span>
-                          ))
-                        ) : (
-                          <span className="text-sm font-bold text-stone-300">尚無資料</span>
-                        )}
-                      </div>
-                      {leaderboard?.maxScore !== undefined && (
-                        <span className="text-[10px] text-stone-400">{leaderboard.maxScore} 分</span>
-                      )}
-                    </div>
-                    <div className="bg-stone-50 rounded-xl p-4 text-center">
-                      <span className="block text-xs text-stone-400 uppercase tracking-widest mb-1">本週墊底 🐢</span>
-                      <div className="flex flex-col gap-1">
-                        {leaderboard?.lowests?.length > 0 ? (
-                          leaderboard.lowests.map((email: string) => (
-                            <span key={email} className="text-sm font-bold truncate" title={email}>
-                              {email.split('@')[0]}
+                            <span className="text-sm font-medium truncate max-w-[120px]" title={player.email}>
+                              {player.email.split('@')[0]}
                             </span>
-                          ))
-                        ) : (
-                          <span className="text-sm font-bold text-stone-300">尚無資料</span>
-                        )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div className="flex -space-x-1">
+                              {player.first > 0 && (
+                                <span className="w-6 h-6 bg-white border border-amber-100 rounded-full flex items-center justify-center text-[10px] shadow-sm" title={`冠軍 ${player.first} 次`}>
+                                  🥇<span className="ml-0.5">{player.first}</span>
+                                </span>
+                              )}
+                              {player.second > 0 && (
+                                <span className="w-6 h-6 bg-white border border-stone-200 rounded-full flex items-center justify-center text-[10px] shadow-sm" title={`亞軍 ${player.second} 次`}>
+                                  🥈<span className="ml-0.5">{player.second}</span>
+                                </span>
+                              )}
+                              {player.third > 0 && (
+                                <span className="w-6 h-6 bg-white border border-orange-100 rounded-full flex items-center justify-center text-[10px] shadow-sm" title={`季軍 ${player.third} 次`}>
+                                  🥉<span className="ml-0.5">{player.third}</span>
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[10px] font-bold text-stone-400 ml-2">{player.totalPoints} pts</span>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="py-8 text-center text-stone-300 italic text-sm">
+                        尚無排名資料
                       </div>
-                      {leaderboard?.minScore !== undefined && (
-                        <span className="text-[10px] text-stone-400">{leaderboard.minScore} 分</span>
-                      )}
-                    </div>
+                    )}
                   </div>
                 </Card>
               </div>
@@ -525,13 +515,6 @@ export default function App() {
                                     <FileSpreadsheet size={16} />
                                   </a>
                                 )}
-                                <button 
-                                  onClick={() => deleteForm(form.id)}
-                                  className="p-2 text-stone-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                                  title="刪除記錄"
-                                >
-                                  <Trash2 size={16} />
-                                </button>
                               </div>
                             </td>
                           </tr>

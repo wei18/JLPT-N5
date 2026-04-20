@@ -134,9 +134,10 @@ app.post('/api/analyze', async (req, res) => {
       return res.json({ mistakes: [], leaderboard: null });
     }
 
-    // 取得最近 10 個表單
-    const recentForms = registryRows.slice(-10).reverse();
+    // 取得最近 30 個表單進行分析
+    const recentForms = registryRows.slice(-30).reverse();
     const allMistakeCounts: { [key: string]: number } = {};
+    const hallOfFame: { [email: string]: { first: number, second: number, third: number } } = {};
     const allScores: { email: string, score: number, date: string }[] = [];
 
     // 2. 平行化分析表單，限制併發數為 3 以防觸發 Rate Limit
@@ -166,31 +167,48 @@ app.post('/api/analyze', async (req, res) => {
           }
         });
 
-        const responses = formsRes.data.responses || [];
-        responses.forEach(resp => {
-          const email = resp.respondentEmail;
-          if (!email || email === 'anonymous') return;
+        const responses = (formsRes.data.responses || []).filter(r => r.respondentEmail && r.respondentEmail !== 'anonymous');
+        
+        // 處理單份表單的名次
+        if (responses.length > 0) {
+          // 找出這份考卷的 1, 2, 3 名分數
+          const scores = Array.from(new Set(responses.map(r => r.totalScore || 0))).sort((a, b) => b - a);
+          const firstScore = scores[0];
+          const secondScore = scores[1]; // 可能 undefined
+          const thirdScore = scores[2]; // 可能 undefined
 
-          const totalScore = resp.totalScore || 0;
-          allScores.push({ email, score: totalScore, date: sessionDate });
-
-          Object.entries(resp.answers || {}).forEach(([qId, answerObj]: [string, any]) => {
-            const qInfo = questionMap.get(qId);
-            if (qInfo) {
-              const userAnswers = answerObj.textAnswers?.answers?.map((a: any) => a.value) || [];
-              const isCorrect = qInfo.correctAnswers.some((ca: string) => 
-                userAnswers.some(ua => ua && ua.trim() === ca.trim())
-              );
-              
-              if (!isCorrect) {
-                allMistakeCounts[qInfo.word] = (allMistakeCounts[qInfo.word] || 0) + 1;
-              }
+          responses.forEach(resp => {
+            const email = resp.respondentEmail!;
+            const score = resp.totalScore || 0;
+            
+            if (!hallOfFame[email]) {
+              hallOfFame[email] = { first: 0, second: 0, third: 0 };
             }
+
+            if (score === firstScore) hallOfFame[email].first++;
+            else if (secondScore !== undefined && score === secondScore) hallOfFame[email].second++;
+            else if (thirdScore !== undefined && score === thirdScore) hallOfFame[email].third++;
+
+            allScores.push({ email, score, date: sessionDate });
+
+            // 錯誤單字統計
+            Object.entries(resp.answers || {}).forEach(([qId, answerObj]: [string, any]) => {
+              const qInfo = questionMap.get(qId);
+              if (qInfo) {
+                const userAnswers = answerObj.textAnswers?.answers?.map((a: any) => a.value) || [];
+                const isCorrect = qInfo.correctAnswers.some((ca: string) => 
+                  userAnswers.some(ua => ua && ua.trim() === ca.trim())
+                );
+                if (!isCorrect) {
+                  allMistakeCounts[qInfo.word] = (allMistakeCounts[qInfo.word] || 0) + 1;
+                }
+              }
+            });
           });
-        });
+        }
       } catch (e: any) {
         if (isGoogleNotFoundError(e)) {
-          console.warn(`Form ${formId} not found in Drive, skipping analysis.`);
+          console.warn(`Form ${formId} not found, skipping analysis.`);
         } else {
           console.error(`Failed to analyze form ${formId}:`, e);
         }
@@ -209,11 +227,22 @@ app.post('/api/analyze', async (req, res) => {
       const maxScore = Math.max(...allScores.map(s => s.score));
       const minScore = Math.min(...allScores.map(s => s.score));
       
+      // 將用戶依總獎盃數排序 (積分權重: 1st=3, 2nd=2, 3rd=1)
+      const rankedHallOfFame = Object.entries(hallOfFame)
+        .map(([email, counts]) => ({
+          email,
+          ...counts,
+          totalPoints: counts.first * 3 + counts.second * 2 + counts.third * 1
+        }))
+        .sort((a, b) => b.totalPoints - a.totalPoints || b.first - a.first)
+        .slice(0, 10);
+
       leaderboard = {
         champions: Array.from(new Set(allScores.filter(s => s.score === maxScore).map(s => s.email))),
         lowests: Array.from(new Set(allScores.filter(s => s.score === minScore).map(s => s.email))),
         maxScore,
-        minScore
+        minScore,
+        hallOfFame: rankedHallOfFame
       };
     }
 
