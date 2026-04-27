@@ -19,24 +19,26 @@ Total words: 50.
 PRIORITY: Include these {mistakesCount} recent error words: {mistakesList}.
 FILL: Add {newCount} new N5 level words to reach 50.
 
-SPECIAL REQUIREMENT: 
-Pick 10 words (instead of 5) and set "isExamStyle" to true. 
-For these 10 words, provide an "examQuestionText" mimicking the JLPT N5 "Vocabulary in Context" section. 
-The sentence should have a blank (____) where the word fits. 
-Example: 「あしたは (____) へ いきます。」 (Options would be ぎんこう, etc.)
+N5 EXAM STYLE REQUIREMENTS:
+Pick 10 words and set "isExamStyle" to true.
+For these 10 words, provide an "examQuestionText" mimicking the JLPT N5 "Vocabulary in Context" section.
+- PRIORITY: Use actual N5 past paper questions (考古題) if possible. If not, generate high-quality realistic ones.
+- NO BLANKS: Do not use symbols like "(____)" or "____" in the sentence. Instead, present the sentence and ask which word fits the context described.
+- SINGLE CORRECT ANSWER: Distractors must be strictly incorrect in the context.
 
-For each word:
+CORE PROPERTIES FOR ALL WORDS:
 1. word: The Kanji/Kana (e.g., 銀行)
 2. reading: The Hiragana only (e.g., ぎんこう)
 3. meaning: Traditional Chinese meaning (e.g., 銀行)
-4. example: A simple N5-level sentence.
-5. distractors: 3 high-quality distractors. 
-   - If it's a reading quiz, distractors should be similar-sounding Hiragana (e.g., きんこう, ぎんこ).
-   - If it's a meaning quiz, distractors should be words from the same category (e.g., for "bank", use "post office", "station").
+4. example: A simple N5 sentence.
+5. distractors: 3 high-quality distractors.
+   - CRITICAL: All 3 distractors MUST be Hiragana (ひらがな). 
+   - They should be similar-sounding or visually similar to the "reading" field (e.g., for "ぎんこう", use "きんこう", "きんこ", "ぎんこ").
+   - NEVER use Kanji or meanings in this field. This is to ensure "Reading" questions (which are most common) have 4 consistent Hiragana options.
 6. isExamStyle: boolean.
-7. examQuestionText: string (only if isExamStyle is true).
+7. examQuestionText: string.
 
-Ensure all vocabulary and grammar in sentences are strictly N5.
+Ensure all vocabulary and grammar are strictly N5.
 `;
 
 export async function generateWeeklyVocabulary(previousMistakes: string[] = []): Promise<VocabularyItem[]> {

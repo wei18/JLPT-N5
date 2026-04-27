@@ -335,36 +335,58 @@ app.post('/api/forms/create', async (req, res) => {
       const questionNumber = index + 1;
       const pointValue = 2;
       
-      const randType = Math.random();
-      const isShortAnswer = randType < 0.1; // 10% 機率使用短問答
+      const isShortAnswer = false; // 用戶要求不要填空題 (這裡指打字題)
 
       if (item.isExamStyle && item.examQuestionText) {
-        // N5 考試題型：填充句子
-        if (isShortAnswer) {
-          requests.push({
-            createItem: {
-              item: {
-                title: `${questionNumber}. 請填入最適合空格的讀音（如「ぎんこう」）：${item.examQuestionText}`,
-                questionItem: {
-                  question: {
-                    required: true,
-                    grading: { 
-                      pointValue, 
-                      correctAnswers: { answers: [{ value: item.reading }] } 
-                    },
-                    textQuestion: {} // SHORT_ANSWER
+        // N5 考試題型：語境用法
+        // 確保選項類型與答案一致 (均為 Hiragana)
+        const distractors = (item.distractors || []).slice(0, 3);
+        const options = [item.reading, ...distractors].sort(() => 0.5 - Math.random());
+        
+        requests.push({
+          createItem: {
+            item: {
+              title: `${questionNumber}. [語境用法] 請選出最符合句意的正確讀音：\n${item.examQuestionText}`,
+              questionItem: {
+                question: {
+                  required: true,
+                  grading: { 
+                    pointValue, 
+                    correctAnswers: { answers: [{ value: item.reading }] } 
+                  },
+                  choiceQuestion: {
+                    type: 'RADIO',
+                    options: options.map(o => ({ value: o }))
                   }
                 }
-              },
-              location: { index }
-            }
-          } as any);
-        } else {
-          const options = [item.reading, ...item.distractors].sort(() => 0.5 - Math.random());
+              }
+            },
+            location: { index }
+          }
+        } as any);
+      } else {
+        // 分配題型：讀音檢測 (40%), 意思檢測 (40%), 漢字檢測 (20%)
+        const rand = Math.random();
+        
+        if (rand < 0.4) {
+          // 題型 1: 漢字 -> 讀音 (読み)
+          // 優先使用 AI 提供的干擾項 (通常是相似音)，但若包含漢字則過濾掉
+          const aiDistractors = (item.distractors || []).filter(d => !/[\u4e00-\u9faf]/.test(d));
+          let distractors = aiDistractors;
+          
+          // 如果 AI 提供的干擾項不足，則從其他單字抓取讀音補足
+          if (distractors.length < 3) {
+            const otherReadings = validVocabulary
+              .filter((v: any) => v.word !== item.word)
+              .map((v: any) => v.reading);
+            distractors = [...distractors, ...otherReadings].slice(0, 3);
+          }
+
+          const options = [item.reading, ...distractors].slice(0, 4).sort(() => 0.5 - Math.random());
           requests.push({
             createItem: {
               item: {
-                title: `${questionNumber}. 請選擇最適合填入空格的答案：${item.examQuestionText}`,
+                title: `${questionNumber}. [讀音測驗] 「${item.word}」的正確讀音是什麼？`,
                 questionItem: {
                   question: {
                     required: true,
@@ -382,151 +404,58 @@ app.post('/api/forms/create', async (req, res) => {
               location: { index }
             }
           } as any);
-        }
-      } else {
-        // 分配題型：讀音檢測 (40%), 意思檢測 (40%), 漢字檢測 (20%)
-        const rand = Math.random();
-        
-        if (rand < 0.4) {
-          // 題型 1: 漢字 -> 讀音 (読み)
-          if (isShortAnswer) {
-             requests.push({
-              createItem: {
-                item: {
-                  title: `${questionNumber}. 「${item.word}」的讀音（ひらがな）是什麼？`,
-                  questionItem: {
-                    question: {
-                      required: true,
-                      grading: { 
-                        pointValue, 
-                        correctAnswers: { answers: [{ value: item.reading }] } 
-                      },
-                      textQuestion: {}
-                    }
-                  }
-                },
-                location: { index }
-              }
-            } as any);
-          } else {
-            const distractors = item.distractors || []; 
-            const options = [item.reading, ...distractors].slice(0, 4).sort(() => 0.5 - Math.random());
-            requests.push({
-              createItem: {
-                item: {
-                  title: `${questionNumber}. 「${item.word}」的讀音（ひらがな）是什麼？`,
-                  questionItem: {
-                    question: {
-                      required: true,
-                      grading: { 
-                        pointValue, 
-                        correctAnswers: { answers: [{ value: item.reading }] } 
-                      },
-                      choiceQuestion: {
-                        type: 'RADIO',
-                        options: options.map(o => ({ value: o }))
-                      }
-                    }
-                  }
-                },
-                location: { index }
-              }
-            } as any);
-          }
         } else if (rand < 0.8) {
           // 題型 2: 讀音 -> 意思 (意味)
-          if (isShortAnswer) {
-             requests.push({
-              createItem: {
-                item: {
-                  title: `${questionNumber}. 「${item.reading}」的意思是什麼？`,
-                  questionItem: {
-                    question: {
-                      required: true,
-                      grading: { 
-                        pointValue, 
-                        correctAnswers: { answers: [{ value: item.meaning }] } 
-                      },
-                      textQuestion: {}
+          const otherWords = validVocabulary.filter((v: any) => v.word !== item.word);
+          const distractors = otherWords.sort(() => 0.5 - Math.random()).slice(0, 3).map((v: any) => v.meaning);
+          const options = [item.meaning, ...distractors].sort(() => 0.5 - Math.random());
+          requests.push({
+            createItem: {
+              item: {
+                title: `${questionNumber}. [意思測驗] 「${item.reading}」的中文意思是什麼？`,
+                questionItem: {
+                  question: {
+                    required: true,
+                    grading: { 
+                      pointValue, 
+                      correctAnswers: { answers: [{ value: item.meaning }] } 
+                    },
+                    choiceQuestion: {
+                      type: 'RADIO',
+                      options: options.map(o => ({ value: o }))
                     }
                   }
-                },
-                location: { index }
-              }
-            } as any);
-          } else {
-            const otherWords = validVocabulary.filter((v: any) => v.word !== item.word);
-            const distractors = otherWords.sort(() => 0.5 - Math.random()).slice(0, 3).map((v: any) => v.meaning);
-            const options = [item.meaning, ...distractors].sort(() => 0.5 - Math.random());
-            requests.push({
-              createItem: {
-                item: {
-                  title: `${questionNumber}. 「${item.reading}」的意思是什麼？`,
-                  questionItem: {
-                    question: {
-                      required: true,
-                      grading: { 
-                        pointValue, 
-                        correctAnswers: { answers: [{ value: item.meaning }] } 
-                      },
-                      choiceQuestion: {
-                        type: 'RADIO',
-                        options: options.map(o => ({ value: o }))
-                      }
-                    }
-                  }
-                },
-                location: { index }
-              }
-            } as any);
-          }
+                }
+              },
+              location: { index }
+            }
+          } as any);
         } else {
           // 題型 3: 讀音 -> 漢字 (漢字表現) - 對華人較有鑑別度
-          if (isShortAnswer) {
-             requests.push({
-              createItem: {
-                item: {
-                  title: `${questionNumber}. 讀音為「${item.reading}」的漢字單字（如「先生」）是什麼？`,
-                  questionItem: {
-                    question: {
-                      required: true,
-                      grading: { 
-                        pointValue, 
-                        correctAnswers: { answers: [{ value: item.word }] } 
-                      },
-                      textQuestion: {}
+          const otherWords = validVocabulary.filter((v: any) => v.word !== item.word);
+          const distractors = otherWords.sort(() => 0.5 - Math.random()).slice(0, 3).map((v: any) => v.word);
+          const options = [item.word, ...distractors].sort(() => 0.5 - Math.random());
+          requests.push({
+            createItem: {
+              item: {
+                title: `${questionNumber}. [漢字標記] 讀音為「${item.reading}」的正確漢字是哪一個？`,
+                questionItem: {
+                  question: {
+                    required: true,
+                    grading: { 
+                      pointValue, 
+                      correctAnswers: { answers: [{ value: item.word }] } 
+                    },
+                    choiceQuestion: {
+                      type: 'RADIO',
+                      options: options.map(o => ({ value: o }))
                     }
                   }
-                },
-                location: { index }
-              }
-            } as any);
-          } else {
-            const otherWords = validVocabulary.filter((v: any) => v.word !== item.word);
-            const distractors = otherWords.sort(() => 0.5 - Math.random()).slice(0, 3).map((v: any) => v.word);
-            const options = [item.word, ...distractors].sort(() => 0.5 - Math.random());
-            requests.push({
-              createItem: {
-                item: {
-                  title: `${questionNumber}. 讀音是「${item.reading}」的漢字單字是哪一個？`,
-                  questionItem: {
-                    question: {
-                      required: true,
-                      grading: { 
-                        pointValue, 
-                        correctAnswers: { answers: [{ value: item.word }] } 
-                      },
-                      choiceQuestion: {
-                        type: 'RADIO',
-                        options: options.map(o => ({ value: o }))
-                      }
-                    }
-                  }
-                },
-                location: { index }
-              }
-            } as any);
-          }
+                }
+              },
+              location: { index }
+            }
+          } as any);
         }
       }
     });
