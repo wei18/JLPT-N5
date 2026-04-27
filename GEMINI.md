@@ -32,7 +32,7 @@ A full-stack application (Express + Vite) that helps users study JLPT N5 vocabul
 - **Settings**:
     - `Verified Email Collection` (REQUIRED).
     - `Always Send Response Copy` (REQUIRED).
-- **Question Logic**: 100% Multiple Choice (RADIO), eliminating prefixes like [語境用法], [意思測驗], [讀音測驗].
+- **Question Logic**: 100% Multiple Choice (RADIO), contextualized according to JLPT N5 patterns (Kanji Reading, Contextual Usage, Kanji Selection).
 - **UI Constraints**: Question `title` must NOT contain newlines; use `description` for multi-line context if needed.
 
 ## Coding Conventions

@@ -9,12 +9,15 @@ An AI-powered JLPT N5 vocabulary study tool that generates weekly vocabulary lis
 - **Dynamic Selection**: Generates 50 unique N5-level vocabulary words per session.
 - **Error-Driven Prioritization**: Analyzes recent form responses to prioritize words that respondents frequently get wrong.
 - **Smart Filling**: If fewer than 50 repeat mistakes exist, it fills the remainder with fresh N5 vocabulary words, prioritizing words that haven't appeared recently to avoid duplicates.
-- **Native Prompting**: The exact AI prompt template is visible in the dashboard and managed in a dedicated `prompts.ts` file for maintainability.
+- **Native Prompting**: Prompts are managed in a dedicated source file for better version control.
 
 ### 2. Google Form Quiz Integration
 - **Automatic Creation**: Generates a Google Form quiz with a single click and auto-opens it for verification.
-- **Question Varieties**:
-    - **Multiple Choice**: Choice of readings (Kanji -> Reading), meanings (Reading -> Meaning), or Kanji (Reading -> Kanji).
+- **Contextualized Questions**: Mimics JLPT N5 style by embedding vocabulary in meaningful context sentences.
+- **Dynamic Question Types**:
+    - **漢字讀音 (Kanji Reading)**: Identifies the reading of a word within a sentence.
+    - **文脈規定 (Contextual Usage)**: Selects the correct meaning/word based on the sentence flow.
+    - **漢字表現 (Kanji Selection)**: Matches readings back to their correct Kanji form in context.
 - **Pre-test Study**: The form description contains the full vocabulary list for last-minute review.
 - **Strict Grading**: Enforces quiz settings with correct answers and point values.
 - **Secure Collection**:

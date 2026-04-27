@@ -160,8 +160,17 @@ app.post('/api/analyze', async (req, res) => {
             const correctAnswers = q.grading?.correctAnswers?.answers?.map(a => a.value) || [];
             const title = item.title || '';
             const cleanTitle = title.replace(/^\d+\.\s*/, '');
+            // 排除指示性文字
+            if (cleanTitle.includes('請選擇') || cleanTitle.includes('請填入') || cleanTitle.length > 20) {
+              return;
+            }
             const wordMatch = cleanTitle.match(/^(.+?)\s*\(/);
             const word = wordMatch ? wordMatch[1] : (cleanTitle.includes(' ') ? cleanTitle.split(' ')[0] : cleanTitle);
+            
+            // 再次檢查 word 是否長得像指令
+            if (word.length < 1 || word.length > 10 || word.includes('請')) {
+              return;
+            }
 
             questionMap.set(q.questionId, { word, correctAnswers });
           }
@@ -287,8 +296,20 @@ app.post('/api/forms/create', async (req, res) => {
     console.log('Form created with ID:', formId);
 
     // 2. 設定為測驗、收集 Email 並加入考前說明
-    const validVocabulary = (vocabulary || []).filter((v: any) => v && v.word && v.reading && v.meaning);
+    let validVocabulary = (vocabulary || []).filter((v: any) => v && v.word && v.reading && v.meaning);
     
+    // 嚴格過濾掉長得像指令的單字 (預算 AI 幻覺)
+    validVocabulary = validVocabulary.filter((v: any) => {
+      const isInstruction = (
+        v.word?.includes('請') || 
+        v.word?.length > 15 || 
+        v.meaning?.includes('請') || 
+        v.meaning?.length > 30 ||
+        v.reading?.includes('請')
+      );
+      return !isInstruction;
+    });
+
     if (validVocabulary.length === 0) {
       console.warn('No valid vocabulary items found to create form');
       return res.status(400).json({ error: '單字表內容不完整，無法建立表單。' });
@@ -341,12 +362,10 @@ app.post('/api/forms/create', async (req, res) => {
       const rand = Math.random();
       
       if (rand < 0.4) {
-          // 題型 1: 漢字 -> 讀音 (読み)
-          // 優先使用 AI 提供的干擾項 (通常是相似音)，但若包含漢字則過濾掉
+          // 題型 1: 漢字 -> 讀音
           const aiDistractors = (item.distractors || []).filter(d => !/[\u4e00-\u9faf]/.test(d));
           let distractors = aiDistractors;
           
-          // 如果 AI 提供的干擾項不足，則從其他單字抓取讀音補足
           if (distractors.length < 3) {
             const otherReadings = validVocabulary
               .filter((v: any) => v.word !== item.word)
@@ -354,11 +373,17 @@ app.post('/api/forms/create', async (req, res) => {
             distractors = [...distractors, ...otherReadings].slice(0, 3);
           }
 
-          const options = [item.reading, ...distractors].slice(0, 4).sort(() => 0.5 - Math.random());
+          const options = Array.from(new Set([item.reading, ...distractors])).slice(0, 4).sort(() => 0.5 - Math.random());
+          
+          // N5 Style: 漢字讀音題，給出完整句子，詢問特定單字的讀音
+          const displayTitle = item.example ? `${questionNumber}. ${item.example}` : `${questionNumber}. 「${item.word}」的正確讀音是什麼？`;
+          const displayDesc = item.example ? `問：句子中「${item.word}」的正確讀音是什麼？` : undefined;
+
           requests.push({
             createItem: {
               item: {
-                title: `${questionNumber}. 「${item.word}」的正確讀音是什麼？`,
+                title: displayTitle,
+                description: displayDesc,
                 questionItem: {
                   question: {
                     required: true,
@@ -377,14 +402,20 @@ app.post('/api/forms/create', async (req, res) => {
             }
           } as any);
         } else if (rand < 0.8) {
-          // 題型 2: 讀音 -> 意思 (意味)
+          // 題型 2: 意思檢測 (文脈規定)
           const otherWords = validVocabulary.filter((v: any) => v.word !== item.word);
           const distractors = otherWords.sort(() => 0.5 - Math.random()).slice(0, 3).map((v: any) => v.meaning);
-          const options = [item.meaning, ...distractors].sort(() => 0.5 - Math.random());
+          const options = Array.from(new Set([item.meaning, ...distractors])).sort(() => 0.5 - Math.random());
+          
+          // N5 Style: 文脈題，給出句子，詢問單字在該語境下的意思
+          const displayTitle = item.example ? `${questionNumber}. ${item.example}` : `${questionNumber}. 「${item.reading}」的中文意思是什麼？`;
+          const displayDesc = item.example ? `問：在上述語境中，「${item.word || item.reading}」的意思是？` : undefined;
+
           requests.push({
             createItem: {
               item: {
-                title: `${questionNumber}. 「${item.reading}」的中文意思是什麼？`,
+                title: displayTitle,
+                description: displayDesc,
                 questionItem: {
                   question: {
                     required: true,
@@ -403,14 +434,27 @@ app.post('/api/forms/create', async (req, res) => {
             }
           } as any);
         } else {
-          // 題型 3: 讀音 -> 漢字 (漢字表現) - 對華人較有鑑別度
+          // 題型 3: 漢字檢測 (漢字表現)
           const otherWords = validVocabulary.filter((v: any) => v.word !== item.word);
           const distractors = otherWords.sort(() => 0.5 - Math.random()).slice(0, 3).map((v: any) => v.word);
-          const options = [item.word, ...distractors].sort(() => 0.5 - Math.random());
+          const options = Array.from(new Set([item.word, ...distractors])).sort(() => 0.5 - Math.random());
+          
+          // N5 Style: 漢字題，句子中通常顯示讀音或空格，要求選出正確漢字
+          let displayTitle = `${questionNumber}. 「${item.reading}」的正確漢字是哪一個？`;
+          let displayDesc = undefined;
+
+          if (item.example) {
+            // 將句子中的漢字改回讀音，模擬考題
+            const contextualSentence = item.example.replace(item.word, `（ ${item.reading} ）`);
+            displayTitle = `${questionNumber}. ${contextualSentence}`;
+            displayDesc = `問：括號中「${item.reading}」對應的正確漢字是？`;
+          }
+
           requests.push({
             createItem: {
               item: {
-                title: `${questionNumber}. 讀音為「${item.reading}」的正確漢字是哪一個？`,
+                title: displayTitle,
+                description: displayDesc,
                 questionItem: {
                   question: {
                     required: true,
@@ -873,8 +917,12 @@ app.post('/api/forms/delete', async (req, res) => {
             });
           }
         }
-      } catch (vocabError) {
-        console.error('Error cleaning up Vocabulary Registry:', vocabError);
+      } catch (vocabError: any) {
+        if (vocabError.message && vocabError.message.includes('Unable to parse range')) {
+          console.warn('Vocabulary Registry sheet missing during deletion, skipping cleanup.');
+        } else {
+          console.error('Error cleaning up Vocabulary Registry:', vocabError);
+        }
       }
 
       console.log(`Successfully removed form ${formId} from registry.`);
@@ -956,14 +1004,44 @@ app.get('/api/vocab/used', async (req, res) => {
     const sheets = google.sheets({ version: 'v4', auth: client });
     const formsApi = google.forms({ version: 'v1', auth: client });
 
-    // 1. 讀取目前的表單列表與已使用單字
-    const [formsRes, vocabRes] = await Promise.all([
-      sheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId as string, range: 'Forms List!A:E' }),
-      sheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId as string, range: 'Vocabulary Registry!A:B' })
-    ]);
+    // 1. 讀記目前的表單列表與已使用單字
+    let formsRows: any[] = [];
+    let vocabRows: any[] = [];
 
-    const formsRows = formsRes.data.values || [];
-    const vocabRows = vocabRes.data.values || [];
+    try {
+      const formsRes = await sheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId as string, range: 'Forms List!A:E' });
+      formsRows = formsRes.data.values || [];
+    } catch (e) {
+      console.error('Error fetching forms list:', e);
+    }
+
+    try {
+      const vocabRes = await sheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId as string, range: 'Vocabulary Registry!A:B' });
+      vocabRows = vocabRes.data.values || [];
+    } catch (e: any) {
+      // 如果是 Range 錯誤，說明 Sheet 不存在
+      if (e.message && e.message.includes('Unable to parse range')) {
+        console.warn('Vocabulary Registry sheet missing, creating it now...');
+        try {
+          await sheets.spreadsheets.batchUpdate({
+            spreadsheetId: spreadsheetId as string,
+            requestBody: {
+              requests: [{ addSheet: { properties: { title: 'Vocabulary Registry' } } }]
+            }
+          });
+          await sheets.spreadsheets.values.update({
+            spreadsheetId: spreadsheetId as string,
+            range: 'Vocabulary Registry!A1',
+            valueInputOption: 'USER_ENTERED',
+            requestBody: { values: [['Word', 'Form ID']] }
+          });
+        } catch (createErr) {
+          console.error('Failed to auto-create Vocabulary Registry sheet:', createErr);
+        }
+      } else {
+        console.error('Error fetching vocabulary registry:', e);
+      }
+    }
     
     if (formsRows.length <= 1) return res.json({ usedWords: [] });
 
