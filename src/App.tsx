@@ -15,7 +15,8 @@ import {
   ExternalLink,
   Clock,
   Code,
-  RefreshCw
+  RefreshCw,
+  BarChart3,
 } from 'lucide-react';
 import { generateWeeklyVocabulary, VocabularyItem } from './services/gemini';
 import { VOCAB_PROMPT_TEMPLATE } from './services/prompts';
@@ -545,6 +546,15 @@ export default function App() {
                             </td>
                             <td className="px-6 py-4 text-right">
                               <div className="flex items-center justify-end gap-2">
+                                <a 
+                                  href={`https://docs.google.com/forms/d/${form.id}/edit#responses`} 
+                                  target="_blank" 
+                                  rel="noreferrer"
+                                  className="p-2 text-stone-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                                  title="查看回覆"
+                                >
+                                  <BarChart3 size={16} />
+                                </a>
                                 <a 
                                   href={form.url} 
                                   target="_blank" 

@@ -658,6 +658,32 @@ app.get('/api/forms/list', async (req, res) => {
     const sheets = google.sheets({ version: 'v4', auth: client });
     const formsApi = google.forms({ version: 'v1', auth: client });
 
+    // 1. Fetch Vocabulary Registry once to map questions to actual words
+    let vocabRegistry: any[] = [];
+    try {
+      const vocabRes = await sheets.spreadsheets.values.get({
+        spreadsheetId: spreadsheetId as string,
+        range: 'Vocabulary Registry!A2:E',
+      });
+      vocabRegistry = vocabRes.data.values || [];
+    } catch (e) {
+      console.warn('Vocab Registry fetch failed, using fallback parsing:', e);
+    }
+
+    // Index vocab by Form ID
+    const vocabByForm = new Map<string, any[]>();
+    vocabRegistry.forEach(row => {
+      const formId = row[4];
+      if (formId) {
+        if (!vocabByForm.has(formId)) vocabByForm.set(formId, []);
+        vocabByForm.get(formId)!.push({
+          word: row[0],
+          reading: row[1],
+          meaning: row[2]
+        });
+      }
+    });
+
     try {
       const response = await sheets.spreadsheets.values.get({
         spreadsheetId: spreadsheetId as string,
@@ -701,9 +727,33 @@ app.get('/api/forms/list', async (req, res) => {
               const q = item.questionItem.question;
               const correctAnswers = q.grading?.correctAnswers?.answers?.map(a => a.value) || [];
               const title = item.title || '';
-              const cleanTitle = title.replace(/^\d+\.\s*/, '');
-              const wordMatch = cleanTitle.match(/^(.+?)\s*\(/);
-              const word = wordMatch ? wordMatch[1] : cleanTitle.split(' ')[0];
+              
+              // 優先從 Vocab Registry 尋找對應的單字
+              const formVocab = vocabByForm.get(id) || [];
+              let word = 'Unknown';
+
+              // 根據正確答案匹配 Registry
+              const match = formVocab.find(v => 
+                correctAnswers.includes(v.word) || 
+                correctAnswers.includes(v.reading) || 
+                correctAnswers.includes(v.meaning)
+              );
+
+              if (match) {
+                word = match.word;
+              } else {
+                // Fallback: 如果 Registry 沒抓到，嘗試解析標題
+                const cleanTitle = title.replace(/^\d+\.\s*/, '');
+                const wordMatch = cleanTitle.match(/^(.+?)\s*\(|「(.+?)」/);
+                word = wordMatch ? (wordMatch[1] || wordMatch[2]) : cleanTitle.split(' ')[0];
+                
+                // 過濾掉一些常見的說明文字
+                if (word.includes('讀音') || word.includes('意思') || word.includes('空格')) {
+                  // 最後手段：標題中可能有漢字
+                  const kanjiMatch = cleanTitle.match(/[\u4e00-\u9faf]+/);
+                  if (kanjiMatch) word = kanjiMatch[0];
+                }
+              }
 
               questionMap.set(q.questionId, { word, correctAnswers });
             }
