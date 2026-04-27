@@ -14,7 +14,7 @@ A full-stack application (Express + Vite) that helps users study JLPT N5 vocabul
 ## Google Integration Architecture
 - **Distributed Data Model**:
     - **Master Registry Spreadsheet**: A single spreadsheet titled `N5 Vocabulary Master - Master Registry`.
-        - Sheet `Forms List`: Tracks `[Form ID, Title, URL, Session Sheet ID, Date]`.
+        - Sheet `Forms List`: Tracks `[Form ID, Title, URL, Date]`.
         - Sheet `Vocabulary Registry`: Tracks `[Word, Reading, Meaning, Example, Form ID]` for centralized duplicate exclusion and reference.
     - **Per-Session Storage**: No separate spreadsheets are created for individual quizzes to keep Google Drive clean. All data is centralized in the Master Registry.
 - **Exclusion Logic**: 

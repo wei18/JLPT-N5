@@ -540,15 +540,12 @@ app.post('/api/forms/create', async (req, res) => {
       console.log('Fallback batchUpdate successful');
     }
 
-    // 4. 不再建立個別試算表，直接記錄到 Master Registry
+    // 4. 記錄到 Master Registry (不再建立個別試算表)
     if (spreadsheetId) {
       const now = new Date();
-      const sessionSheetId = 'NONE'; // 標記為不建立試算表
-
-      // 記錄到 Master Registry
       const formUrl = `https://docs.google.com/forms/d/${formId}/viewform`;
       const date = now.toISOString();
-      const formRecord = [[formId, title, formUrl, sessionSheetId, date]];
+      const formRecord = [[formId, title, formUrl, date]]; 
       
       // 同時記錄單字使用量與詳細資訊，以便日後排除重複
       const vocabLogEntries = validVocabulary.map((v: any) => [v.word, v.reading, v.meaning, v.example, formId]);
@@ -571,8 +568,7 @@ app.post('/api/forms/create', async (req, res) => {
       res.json({ 
         success: true, 
         formUrl, 
-        formId,
-        sessionSheetId
+        formId
       });
     }
   } catch (error: any) {
@@ -685,19 +681,10 @@ app.get('/api/forms/list', async (req, res) => {
 
       const formsResults = await Promise.all(sortedRows.slice(0, 30).map(async row => {
         const id = row[0];
-        let sessionSheetId = null;
-        let date = 'Unknown';
-        
-        // 判斷資料格式：舊版 4 欄 [ID, Title, URL, Date] / 新版 5 欄 [ID, Title, URL, SheetID, Date]
-        if (row.length === 5) {
-          sessionSheetId = row[3];
-          date = row[4];
-        } else if (row.length === 4) {
-          date = row[3];
-        }
-
-        // --- 強化：自動找回消失的試算表按鈕 (本邏輯需 Drive API，若無則跳過) ---
-        // 如果註冊表沒紀錄 sessionSheetId，則無按鈕
+        const title = row[1] || 'Untitled';
+        const formUrl = row[2] || '';
+        const date = row[3] || 'Unknown';
+        const sessionSheetId = ''; // No longer exists in sheet
 
         let responseCount = 0;
         let averageScore = 0;
@@ -766,8 +753,8 @@ app.get('/api/forms/list', async (req, res) => {
 
         return {
           id,
-          title: row[1] || 'Untitled',
-          url: row[2] || '',
+          title,
+          url: formUrl,
           date,
           sessionSheetId,
           responseCount,
@@ -842,19 +829,12 @@ app.post('/api/forms/delete', async (req, res) => {
       return res.status(500).json({ error: 'Failed to access Master Registry' });
     }
 
-    // 找出對應的紀錄列 (更寬鬆的匹配，防止欄位偏移或格式問題)
-    const targetRowIndex = values.findIndex(row => {
-      if (!Array.isArray(row)) return false;
-      // 只要該行任一欄位完全等於 formId 就認定為目標
-      return row.some(cell => String(cell || '').trim() === String(formId).trim());
-    });
+    // 找出對應的紀錄列
+    const targetRowIndex = values.findIndex(row => row && row[0] === formId);
     
     if (targetRowIndex !== -1) {
       const targetRow = values[targetRowIndex];
-      // 嘗試從該列中找出寬度大於 20 的 ID（通常就是試算表 ID）
-      const sessionSheetId = targetRow.find((cell: any) => String(cell).length > 20 && String(cell) !== String(formId));
-
-      // 3. (已移除 Drive API 刪除檔案邏輯)
+      // 3. (已移除 Drive API 刪除檔案/分頁邏輯，節省 API 配額)
 
       // 過濾掉該紀錄
       const newValues = values.filter((_, idx) => idx !== targetRowIndex);

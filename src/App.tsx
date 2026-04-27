@@ -555,17 +555,6 @@ export default function App() {
                                 >
                                   <ExternalLink size={16} />
                                 </a>
-                                {form.sessionSheetId && (
-                                  <a 
-                                    href={`https://docs.google.com/spreadsheets/d/${form.sessionSheetId}`} 
-                                    target="_blank" 
-                                    rel="noreferrer"
-                                    className="p-2 text-stone-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-all"
-                                    title="開啟對應試算表"
-                                  >
-                                    <FileSpreadsheet size={16} />
-                                  </a>
-                                )}
                               </div>
                             </td>
                           </tr>
