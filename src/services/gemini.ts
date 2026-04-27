@@ -9,6 +9,7 @@ export interface VocabularyItem {
   reading: string;
   meaning: string;
   example: string;
+  contextualDistractors: string[]; // 3 N5 words of same POS for sentence completion
   distractors: string[];
 }
 
@@ -37,6 +38,10 @@ export async function generateWeeklyVocabulary(previousMistakes: string[] = [], 
               reading: { type: Type.STRING },
               meaning: { type: Type.STRING },
               example: { type: Type.STRING },
+              contextualDistractors: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING }
+              },
               distractors: { 
                 type: Type.ARRAY,
                 items: { type: Type.STRING }

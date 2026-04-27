@@ -16,7 +16,8 @@ CORE PROPERTIES:
 2. reading: Hiragana only.
 3. meaning: Traditional Chinese meaning.
 4. example: A high-quality N5 sentence mimicking exam context (Vocabulary in Context style). IMPORTANT: The target "word" MUST appear in the sentence in its EXACT base/dictionary form as provided in the "word" field.
-5. distractors: 3 Hiragana-only distractors (similar sound/visual).
+5. contextualDistractors: 3 alternative N5 Japanese words (NOT readings, but the words themselves) that are of the same part of speech as "word", which would be grammatically correct but semantically wrong in the "example" sentence.
+6. distractors: 3 Hiragana-only distractors (similar sound/visual).
    - SINGLE CORRECT ANSWER: Distractors must be strictly incorrect in the context.
    - NO JUNK: Distractors must be real N5 words/readings, never instruction fragments.
 

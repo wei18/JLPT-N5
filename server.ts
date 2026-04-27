@@ -358,10 +358,10 @@ app.post('/api/forms/create', async (req, res) => {
       
       const isShortAnswer = false; // 用戶要求不要填空題 (這裡指打字題)
 
-      // 分配題型：讀音檢測 (40%), 意思檢測 (40%), 漢字檢測 (20%)
+      // 分配題型：讀音檢測 (30%), 意思檢測 (30%), 漢字檢測 (20%), 文脈規定 (20%)
       const rand = Math.random();
       
-      if (rand < 0.4) {
+      if (rand < 0.3) {
           // 題型 1: 漢字 -> 讀音
           const aiDistractors = (item.distractors || []).filter(d => !/[\u4e00-\u9faf]/.test(d));
           let distractors = aiDistractors;
@@ -401,8 +401,8 @@ app.post('/api/forms/create', async (req, res) => {
               location: { index }
             }
           } as any);
-        } else if (rand < 0.8) {
-          // 題型 2: 意思檢測 (文脈規定)
+        } else if (rand < 0.6) {
+          // 題型 2: 意思檢測
           const otherWords = validVocabulary.filter((v: any) => v.word !== item.word);
           const distractors = otherWords.sort(() => 0.5 - Math.random()).slice(0, 3).map((v: any) => v.meaning);
           const options = Array.from(new Set([item.meaning, ...distractors])).sort(() => 0.5 - Math.random());
@@ -422,6 +422,36 @@ app.post('/api/forms/create', async (req, res) => {
                     grading: { 
                       pointValue, 
                       correctAnswers: { answers: [{ value: item.meaning }] } 
+                    },
+                    choiceQuestion: {
+                      type: 'RADIO',
+                      options: options.map(o => ({ value: o }))
+                    }
+                  }
+                }
+              },
+              location: { index }
+            }
+          } as any);
+        } else if (rand < 0.8 && item.contextualDistractors && item.contextualDistractors.length >= 3) {
+          // 題型 4: 文脈規定 (選詞填空)
+          const options = Array.from(new Set([item.word, ...item.contextualDistractors])).slice(0, 4).sort(() => 0.5 - Math.random());
+          
+          // N5 Style: 句子中挖空，選擇正確單字填充
+          const displayTitle = item.example ? `${questionNumber}. ${item.example.split(item.word).join('（　　）')}` : `${questionNumber}. （　　）裡應該填入哪個單字？`;
+          const displayDesc = `問：括號中應填入哪個單字最合適？`;
+
+          requests.push({
+            createItem: {
+              item: {
+                title: displayTitle,
+                description: displayDesc,
+                questionItem: {
+                  question: {
+                    required: true,
+                    grading: { 
+                      pointValue, 
+                      correctAnswers: { answers: [{ value: item.word }] } 
                     },
                     choiceQuestion: {
                       type: 'RADIO',
