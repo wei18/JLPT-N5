@@ -15,7 +15,8 @@ import {
   AlertCircle,
   ExternalLink,
   Clock,
-  Code
+  Code,
+  RefreshCw
 } from 'lucide-react';
 import { generateWeeklyVocabulary, VocabularyItem } from './services/gemini';
 import { VOCAB_PROMPT_TEMPLATE } from './services/prompts';
@@ -71,6 +72,34 @@ export default function App() {
   const [vocabulary, setVocabulary] = useState<VocabularyItem[]>([]);
   const [view, setView] = useState<'dashboard'>('dashboard');
   const [generating, setGenerating] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+
+  const handleSyncLegacy = async () => {
+    if (!spreadsheetId) return;
+    setSyncing(true);
+    try {
+      const resp = await fetch('/api/vocab/sync-legacy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          spreadsheetId: spreadsheetId,
+          formIds: [
+            '18x8Sd0CeEUvRbQ-dpsddY6cHmWFnsJGRreWz86Hw-tM',
+            '1hfqZW1Gyi31vQbbtoLTMadVo__gEdvQZDgHgssgaHlc'
+          ]
+        })
+      });
+      const data = await resp.json();
+      if (data.success) {
+        alert(`同步成功！共加入 ${data.addedCount} 個舊單字到總表。`);
+      }
+    } catch (err) {
+      console.error('Sync failed:', err);
+      alert('同步失敗，請稍後再試。');
+    } finally {
+      setSyncing(false);
+    }
+  };
   const [formUrl, setFormUrl] = useState<string | null>(null);
   const [leaderboard, setLeaderboard] = useState<any>(null);
   const [formsHistory, setFormsHistory] = useState<any[]>([]);
@@ -361,14 +390,25 @@ export default function App() {
                       </div>
                     )}
                   </div>
-                  <Button 
-                    onClick={generateWeeklyForm} 
-                    className="mt-8" 
-                    disabled={generating}
-                    icon={generating ? Loader2 : FileSpreadsheet}
-                  >
-                    {generating ? '生成中 (分析+AI+建立表單)...' : '生成 Google 表單'}
-                  </Button>
+                  <div className="mt-8 flex flex-wrap gap-3">
+                    <Button 
+                      onClick={generateWeeklyForm} 
+                      className="flex-1"
+                      disabled={generating}
+                      icon={generating ? Loader2 : FileSpreadsheet}
+                    >
+                      {generating ? '生成中 (分析+AI+建立表單)...' : '生成 Google 表單'}
+                    </Button>
+                    <Button 
+                      onClick={handleSyncLegacy} 
+                      className="bg-stone-100 text-stone-600 hover:bg-stone-200 border-stone-200"
+                      disabled={syncing}
+                      icon={syncing ? Loader2 : RefreshCw}
+                      variant="secondary"
+                    >
+                      {syncing ? '同步中...' : '同步舊單字'}
+                    </Button>
+                  </div>
                 </Card>
 
                 <Card className="flex flex-col justify-between">

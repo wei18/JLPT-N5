@@ -15,7 +15,7 @@ CORE PROPERTIES:
 1. word: The Kanji/Kana. (Actual vocabulary only, e.g., "天気", not instructions).
 2. reading: Hiragana only.
 3. meaning: Traditional Chinese meaning.
-4. example: A high-quality N5 sentence mimicking exam context.
+4. example: A high-quality N5 sentence mimicking exam context (Vocabulary in Context style). IMPORTANT: The target "word" MUST appear in the sentence in its EXACT base/dictionary form as provided in the "word" field.
 5. distractors: 3 Hiragana-only distractors (similar sound/visual).
    - SINGLE CORRECT ANSWER: Distractors must be strictly incorrect in the context.
    - NO JUNK: Distractors must be real N5 words/readings, never instruction fragments.

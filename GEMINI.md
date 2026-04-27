@@ -15,12 +15,10 @@ A full-stack application (Express + Vite) that helps users study JLPT N5 vocabul
 - **Distributed Data Model**:
     - **Master Registry Spreadsheet**: A single spreadsheet titled `N5 Vocabulary Master - Master Registry`.
         - Sheet `Forms List`: Tracks `[Form ID, Title, URL, Session Sheet ID, Date]`.
-        - Sheet `Vocabulary Registry`: Tracks `[Word, Form ID]` for centralized duplicate exclusion.
-    - **Per-Session Spreadsheets**: Each quiz gets its own sheet `N5_Quiz_YYYYMMDD_X` containing:
-        - `Vocabulary`: The words for that quiz.
-        - `Form Responses 1`: The auto-populated results.
+        - Sheet `Vocabulary Registry`: Tracks `[Word, Reading, Meaning, Example, Form ID]` for centralized duplicate exclusion and reference.
+    - **Per-Session Storage**: No separate spreadsheets are created for individual quizzes to keep Google Drive clean. All data is centralized in the Master Registry.
 - **Exclusion Logic**: 
-    - The system tracks all "Used Vocabulary" in the Master Registry.
+    - The system tracks all "Used Vocabulary" with full details in the Master Registry.
     - Before generating new words, the system verifies Form existence in Google Drive.
     - If a Form is deleted, its associated words are purged from the Registry and become eligible for selection again.
 - **Analysis Logic**:

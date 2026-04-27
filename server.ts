@@ -444,8 +444,8 @@ app.post('/api/forms/create', async (req, res) => {
           let displayDesc = undefined;
 
           if (item.example) {
-            // 將句子中的漢字改回讀音，模擬考題
-            const contextualSentence = item.example.replace(item.word, `（ ${item.reading} ）`);
+            // 使用全域替換，避免句子中多次出現單字時只替換一個
+            const contextualSentence = item.example.split(item.word).join(`（ ${item.reading} ）`);
             displayTitle = `${questionNumber}. ${contextualSentence}`;
             displayDesc = `問：括號中「${item.reading}」對應的正確漢字是？`;
           }
@@ -510,67 +510,18 @@ app.post('/api/forms/create', async (req, res) => {
       console.log('Fallback batchUpdate successful');
     }
 
-    // 4. 建立專屬試算表並記錄到 Master Registry
+    // 4. 不再建立個別試算表，直接記錄到 Master Registry
     if (spreadsheetId) {
       const now = new Date();
-      const dateStr = now.toISOString().split('T')[0].replace(/-/g, '');
-      
-      // 讀取 Master Registry 獲取當日 Index
-      let rows: any[] = [];
-      try {
-        const registryRes = await sheets.spreadsheets.values.get({
-          spreadsheetId,
-          range: 'Forms List!A:E',
-        });
-        rows = registryRes.data.values || [];
-      } catch (error: any) {
-        if (isGoogleNotFoundError(error)) {
-          console.warn('Master Registry not found during form creation:', spreadsheetId);
-          return res.status(404).json({ error: 'REGISTRY_NOT_FOUND' });
-        }
-        console.error('Registry access error during creation:', error);
-        return res.status(500).json({ error: 'Failed to access Master Registry' });
-      }
-
-      const todayPrefix = now.toISOString().split('T')[0];
-      const todayCount = rows.filter(row => {
-        const dateStr = row.length === 5 ? row[4] : row[3];
-        return dateStr && dateStr.startsWith(todayPrefix);
-      }).length;
-      const index = todayCount + 1;
-      const sessionSheetName = `N5_Quiz_${dateStr}_${index}`;
-
-      // 建立新試算表
-      const newSheet = await sheets.spreadsheets.create({
-        requestBody: {
-          properties: { title: sessionSheetName },
-          sheets: [
-            { properties: { title: 'Vocabulary' } },
-            { properties: { title: 'Form Responses 1' } }
-          ]
-        }
-      });
-      const sessionSheetId = newSheet.data.spreadsheetId!;
-
-      // 寫入單字表到新試算表
-      const vocabValues = [
-        ['Word', 'Reading', 'Meaning', 'Example'],
-        ...validVocabulary.map((v: any) => [v.word, v.reading, v.meaning, v.example])
-      ];
-      await sheets.spreadsheets.values.update({
-        spreadsheetId: sessionSheetId,
-        range: 'Vocabulary!A1',
-        valueInputOption: 'USER_ENTERED',
-        requestBody: { values: vocabValues }
-      });
+      const sessionSheetId = 'NONE'; // 標記為不建立試算表
 
       // 記錄到 Master Registry
       const formUrl = `https://docs.google.com/forms/d/${formId}/viewform`;
       const date = now.toISOString();
       const formRecord = [[formId, title, formUrl, sessionSheetId, date]];
       
-      // 同時記錄單字使用量，以便日後排除重複
-      const vocabLogEntries = validVocabulary.map((v: any) => [v.word, formId]);
+      // 同時記錄單字使用量與詳細資訊，以便日後排除重複
+      const vocabLogEntries = validVocabulary.map((v: any) => [v.word, v.reading, v.meaning, v.example, formId]);
 
       await Promise.all([
         sheets.spreadsheets.values.append({
@@ -896,28 +847,28 @@ app.post('/api/forms/delete', async (req, res) => {
       }
 
       // 5. 同時清理 Vocabulary Registry
-      try {
-        const vocabRes = await sheets.spreadsheets.values.get({
+    try {
+      const vocabRes = await sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: 'Vocabulary Registry!A:E',
+      });
+      const vocabValues = vocabRes.data.values || [];
+      if (vocabValues.length > 0) {
+        const newVocabValues = vocabValues.filter(row => row[4] !== formId);
+        await sheets.spreadsheets.values.clear({
           spreadsheetId,
-          range: 'Vocabulary Registry!A:B',
+          range: 'Vocabulary Registry!A1:E10000',
         });
-        const vocabValues = vocabRes.data.values || [];
-        if (vocabValues.length > 0) {
-          const newVocabValues = vocabValues.filter(row => row[1] !== formId);
-          await sheets.spreadsheets.values.clear({
+        if (newVocabValues.length > 0) {
+          await sheets.spreadsheets.values.update({
             spreadsheetId,
-            range: 'Vocabulary Registry!A1:B5000',
+            range: 'Vocabulary Registry!A1',
+            valueInputOption: 'USER_ENTERED',
+            requestBody: { values: newVocabValues }
           });
-          if (newVocabValues.length > 0) {
-            await sheets.spreadsheets.values.update({
-              spreadsheetId,
-              range: 'Vocabulary Registry!A1',
-              valueInputOption: 'USER_ENTERED',
-              requestBody: { values: newVocabValues }
-            });
-          }
         }
-      } catch (vocabError: any) {
+      }
+    } catch (vocabError: any) {
         if (vocabError.message && vocabError.message.includes('Unable to parse range')) {
           console.warn('Vocabulary Registry sheet missing during deletion, skipping cleanup.');
         } else {
@@ -979,7 +930,7 @@ app.post('/api/sheets/init', async (req, res) => {
         range: 'Vocabulary Registry!A1',
         valueInputOption: 'USER_ENTERED',
         requestBody: {
-          values: [['Word', 'Form ID']]
+          values: [['Word', 'Reading', 'Meaning', 'Example', 'Form ID']]
         }
       })
     ]);
@@ -1016,7 +967,7 @@ app.get('/api/vocab/used', async (req, res) => {
     }
 
     try {
-      const vocabRes = await sheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId as string, range: 'Vocabulary Registry!A:B' });
+      const vocabRes = await sheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId as string, range: 'Vocabulary Registry!A:E' });
       vocabRows = vocabRes.data.values || [];
     } catch (e: any) {
       // 如果是 Range 錯誤，說明 Sheet 不存在
@@ -1033,7 +984,7 @@ app.get('/api/vocab/used', async (req, res) => {
             spreadsheetId: spreadsheetId as string,
             range: 'Vocabulary Registry!A1',
             valueInputOption: 'USER_ENTERED',
-            requestBody: { values: [['Word', 'Form ID']] }
+            requestBody: { values: [['Word', 'Reading', 'Meaning', 'Example', 'Form ID']] }
           });
         } catch (createErr) {
           console.error('Failed to auto-create Vocabulary Registry sheet:', createErr);
@@ -1067,11 +1018,11 @@ app.get('/api/vocab/used', async (req, res) => {
     if (formsToPrune.length > 0) {
       console.log('Pruning deleted forms from registry:', formsToPrune);
       const remainingForms = [header, ...dataRows.filter(r => !formsToPrune.includes(r[0]))];
-      const remainingVocab = vocabRows.filter(r => r[1] === 'Form ID' || activeFormIds.includes(r[1]));
+      const remainingVocab = vocabRows.filter(r => r[4] === 'Form ID' || activeFormIds.includes(r[4]));
 
       await Promise.all([
         sheets.spreadsheets.values.clear({ spreadsheetId: spreadsheetId as string, range: 'Forms List!A1:E5000' }),
-        sheets.spreadsheets.values.clear({ spreadsheetId: spreadsheetId as string, range: 'Vocabulary Registry!A1:B10000' })
+        sheets.spreadsheets.values.clear({ spreadsheetId: spreadsheetId as string, range: 'Vocabulary Registry!A1:E10000' })
       ]);
 
       await Promise.all([
@@ -1098,6 +1049,91 @@ app.get('/api/vocab/used', async (req, res) => {
   } catch (error) {
     console.error('Error fetching used vocab:', error);
     res.json({ usedWords: [] });
+  }
+});
+
+// 新增：手動同步舊表單單字功能
+app.post('/api/vocab/sync-legacy', async (req, res) => {
+  const tokensStr = req.cookies.google_tokens;
+  if (!tokensStr) return res.status(401).json({ error: 'Not authenticated' });
+  const { spreadsheetId, formIds } = req.body;
+  if (!spreadsheetId || !formIds || !Array.isArray(formIds)) {
+    return res.status(400).json({ error: 'Spreadsheet ID and Form IDs array required' });
+  }
+
+  try {
+    const client = getOAuth2Client();
+    const tokens = JSON.parse(tokensStr);
+    client.setCredentials(tokens);
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    const formsApi = google.forms({ version: 'v1', auth: client });
+
+    const allAddedWords: string[] = [];
+
+    // 先讀取現有的總表，避免重複同步
+    let existingFormIds: string[] = [];
+    try {
+      const currentVocab = await sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: 'Vocabulary Registry!E:E' // Form ID 列
+      });
+      existingFormIds = (currentVocab.data.values || []).map(row => row[0]);
+    } catch (e) {
+      console.warn('Could not fetch existing vocab for duplication check, proceeding with skip-if-error logic.');
+    }
+
+    for (const formId of formIds) {
+      if (existingFormIds.includes(formId)) {
+        console.log(`Form ${formId} already exists in registry, skipping.`);
+        continue;
+      }
+
+      try {
+        const form = await formsApi.forms.get({ formId });
+        const description = form.data.info?.description || '';
+        
+        // 從考前預習列表中提取詳細資訊
+        const lines = description.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+        const vocabEntries: any[] = [];
+        
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          // 格式: 1. 單字 (讀音) - 意思
+          const match = line.match(/^\d+\.\s+(.+?)\s+\((.+?)\)\s+-\s+(.+)$/);
+          if (match) {
+            const word = match[1];
+            const reading = match[2];
+            const meaning = match[3];
+            let example = '';
+            
+            // 下一行通常是例句 (例句：...)
+            if (i + 1 < lines.length && lines[i+1].startsWith('例句：')) {
+              example = lines[i+1].replace('例句：', '').trim();
+              i++; // 跳過例句行
+            }
+            
+            vocabEntries.push([word, reading, meaning, example, formId]);
+          }
+        }
+
+        if (vocabEntries.length > 0) {
+          await sheets.spreadsheets.values.append({
+            spreadsheetId,
+            range: 'Vocabulary Registry!A1',
+            valueInputOption: 'USER_ENTERED',
+            requestBody: { values: vocabEntries }
+          });
+          allAddedWords.push(...vocabEntries.map(e => e[0]));
+        }
+      } catch (e) {
+        console.error(`Failed to sync form ${formId}:`, e);
+      }
+    }
+
+    res.json({ success: true, addedCount: allAddedWords.length });
+  } catch (error) {
+    console.error('Legacy sync error:', error);
+    res.status(500).json({ error: 'Failed to sync legacy forms' });
   }
 });
 

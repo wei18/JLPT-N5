@@ -1,7 +1,7 @@
 # N5 Vocabulary Master - Specification
 
 ## Overview
-An AI-powered JLPT N5 vocabulary study tool that generates weekly vocabulary lists based on past performance and creates Google Forms for testing. It uses a distributed data architecture with a Master Registry spreadsheet and individual per-session sheets for each quiz.
+An AI-powered JLPT N5 vocabulary study tool that generates weekly vocabulary lists based on past performance and creates Google Forms for testing. It uses a centralized data architecture with a Master Registry spreadsheet as the single source of truth for all quiz metadata and vocabulary history.
 
 ## Core Features
 
@@ -24,14 +24,12 @@ An AI-powered JLPT N5 vocabulary study tool that generates weekly vocabulary lis
     - **Verified Email**: Mandatory Google Login to collect verified email addresses.
     - **Response Copies**: Automatically sends a copy of the results to every respondent.
 
-### 3. Distributed Data Architecture (Google Sheets)
+### 3. Centralized Data Architecture (Google Sheets)
 - **Master Registry Spreadsheet**:
-    - `Forms List`: Tracks all generated quizzes, metadata, specific session sheet IDs, and dates.
-- **Per-Session Sheets**:
-    - Each generated form is linked to its own dedicated spreadsheet titled `N5_Quiz_YYYYMMDD_index`.
-    - `Vocabulary`: Stores the specific words generated for that session.
-    - `Responses`: Stores individual form submissions.
-- **Automatic Cleanup**: Deleting a record from the dashboard automatically deletes the corresponding Google Form and Session Spreadsheet.
+    - `Forms List`: Tracks all generated quizzes, metadata, and dates.
+    - `Vocabulary Registry`: A comprehensive database of all words ever tested, including readings, meanings, and context sentences.
+- **Drive Cleanliness**: No separate session sheets are created, keeping the user's Google Drive organized. Data is analyzed directly from the Google Forms via API.
+- **Automatic Cleanup**: Deleting a record from the dashboard automatically deletes the corresponding Google Form and purges its vocabulary from the registry.
 
 ### 4. Advanced Dashboard & Analytics
 - **Leaderboard**: Displays current top performers and those needing more practice based on filtered non-anonymous data.
