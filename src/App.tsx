@@ -10,7 +10,6 @@ import {
   History, 
   Play, 
   Loader2,
-  FileSpreadsheet,
   Award,
   AlertCircle,
   ExternalLink,
@@ -322,7 +321,7 @@ export default function App() {
               連結 Google Sheets 記錄你的成長。
             </p>
           </div>
-          <Button onClick={login} className="w-full py-4 text-lg" icon={FileSpreadsheet}>
+          <Button onClick={login} className="w-full py-4 text-lg" icon={Play}>
             使用 Google 帳號登入
           </Button>
           <p className="text-xs text-stone-400 uppercase tracking-widest">JLPT N5 Study Tool</p>
@@ -395,7 +394,7 @@ export default function App() {
                       onClick={generateWeeklyForm} 
                       className="flex-1"
                       disabled={generating}
-                      icon={generating ? Loader2 : FileSpreadsheet}
+                      icon={generating ? Loader2 : Play}
                     >
                       {generating ? '生成中 (分析+AI+建立表單)...' : '生成 Google 表單'}
                     </Button>

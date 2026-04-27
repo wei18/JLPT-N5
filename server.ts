@@ -684,7 +684,6 @@ app.get('/api/forms/list', async (req, res) => {
         const title = row[1] || 'Untitled';
         const formUrl = row[2] || '';
         const date = row[3] || 'Unknown';
-        const sessionSheetId = ''; // No longer exists in sheet
 
         let responseCount = 0;
         let averageScore = 0;
@@ -756,7 +755,6 @@ app.get('/api/forms/list', async (req, res) => {
           title,
           url: formUrl,
           date,
-          sessionSheetId,
           responseCount,
           averageScore: Math.round(averageScore),
           weakWords,
