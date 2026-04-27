@@ -12,14 +12,15 @@ export interface VocabularyItem {
   distractors: string[];
 }
 
-export async function generateWeeklyVocabulary(previousMistakes: string[] = []): Promise<VocabularyItem[]> {
+export async function generateWeeklyVocabulary(previousMistakes: string[] = [], usedVocab: string[] = []): Promise<VocabularyItem[]> {
   const mistakesList = previousMistakes.slice(0, 50);
   const newCount = Math.max(0, 50 - mistakesList.length);
   
   const prompt = VOCAB_PROMPT_TEMPLATE
     .replace('{mistakesCount}', mistakesList.length.toString())
     .replace('{mistakesList}', mistakesList.join(', '))
-    .replace('{newCount}', newCount.toString());
+    .replace('{newCount}', newCount.toString())
+    .replace('{usedVocab}', usedVocab.length > 0 ? usedVocab.join(', ') : 'None');
 
   try {
     const response = await ai.models.generateContent({

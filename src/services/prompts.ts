@@ -1,10 +1,12 @@
 export const VOCAB_PROMPT_TEMPLATE = `
-Generate a list of Japanese N5 vocabulary.
+Generate a list of unique Japanese N5 vocabulary.
 Total: 50 words.
 
 PRIORITY: 
 - Include {mistakesCount} error words: {mistakesList}.
 - Use vocabulary and context styles from actual N5 past paper questions (考古題) or high-quality realistic ones.
+- NO DUPLICATES: Strictly avoid these previously used words: {usedVocab}.
+- For the {newCount} additional words, priority should be given to N5 words that are NOT in the mistakes list or the used list. Try to introduce fresh vocabulary.
 
 FILL: Add {newCount} new N5 words to reach 50.
 

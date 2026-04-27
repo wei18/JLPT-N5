@@ -8,16 +8,21 @@ A full-stack application (Express + Vite) that helps users study JLPT N5 vocabul
 ## Tech Stack
 - **Frontend**: React (Vite), Tailwind CSS, Framer Motion, Lucide-React.
 - **Backend**: Express.js, Google APIs Node.js Client (`googleapis`).
-- **AI**: Gemini API via `@google/genai` (used in `src/services/gemini.ts`).
+- **AI**: Gemini API via `@google/genai` (Service: `src/services/gemini.ts`, Prompts: `src/services/prompts.ts`).
 - **Auth**: Google OAuth 2.0. Tokens are stored in a secure, httpOnly cookie named `google_tokens`.
 
 ## Google Integration Architecture
 - **Distributed Data Model**:
     - **Master Registry Spreadsheet**: A single spreadsheet titled `N5 Vocabulary Master - Master Registry`.
         - Sheet `Forms List`: Tracks `[Form ID, Title, URL, Session Sheet ID, Date]`.
+        - Sheet `Vocabulary Registry`: Tracks `[Word, Form ID]` for centralized duplicate exclusion.
     - **Per-Session Spreadsheets**: Each quiz gets its own sheet `N5_Quiz_YYYYMMDD_X` containing:
         - `Vocabulary`: The words for that quiz.
         - `Form Responses 1`: The auto-populated results.
+- **Exclusion Logic**: 
+    - The system tracks all "Used Vocabulary" in the Master Registry.
+    - Before generating new words, the system verifies Form existence in Google Drive.
+    - If a Form is deleted, its associated words are purged from the Registry and become eligible for selection again.
 - **Analysis Logic**:
     - Performance analysis (Mistakes/Leaderboards) is done via **direct Forms API calls** (reading all responses) combined with the Master Registry to identify recent forms.
     - Test data detection: Responses from "anonymous" or missing emails are filtered out.
@@ -27,7 +32,8 @@ A full-stack application (Express + Vite) that helps users study JLPT N5 vocabul
 - **Settings**:
     - `Verified Email Collection` (REQUIRED).
     - `Always Send Response Copy` (REQUIRED).
-- **Question Logic**: 90% Multiple Choice (RADIO), 10% Short Answer (TEXT), incorporating JLPT N5 context-based questions.
+- **Question Logic**: 100% Multiple Choice (RADIO), eliminating prefixes like [語境用法], [意思測驗], [讀音測驗].
+- **UI Constraints**: Question `title` must NOT contain newlines; use `description` for multi-line context if needed.
 
 ## Coding Conventions
 - **Styling**: Use Tailwind CSS utility classes exclusively.
@@ -47,6 +53,7 @@ A full-stack application (Express + Vite) that helps users study JLPT N5 vocabul
 ## File Structure
 - `server.ts`: Express server, OAuth handling, Google API integrations, and analytics.
 - `src/App.tsx`: Main dashboard, history table, and UI logic.
-- `src/services/gemini.ts`: AI prompt templates and generation logic.
+- `src/services/gemini.ts`: AI generation service.
+- `src/services/prompts.ts`: AI prompt templates.
 - `Spec.md`: Product requirements and feature list.
 - `proposals/`: Directory for documenting pending discussions and architecture proposals.

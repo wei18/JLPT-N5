@@ -215,8 +215,18 @@ export default function App() {
       // 2. Analyze mistakes
       const mistakes = await analyzeSpreadsheet();
 
-      // 3. Generate vocabulary with AI
-      const words = await generateWeeklyVocabulary(mistakes || []);
+      // 3. Fetch recently used vocabulary to exclude
+      let usedVocab: string[] = [];
+      try {
+        const usedRes = await fetch(`/api/vocab/used?spreadsheetId=${currentId}`);
+        const usedData = await usedRes.json();
+        usedVocab = usedData.usedWords || [];
+      } catch (err) {
+        console.warn('Failed to fetch used vocab, proceeding without exclusion:', err);
+      }
+
+      // 4. Generate vocabulary with AI
+      const words = await generateWeeklyVocabulary(mistakes || [], usedVocab);
       if (!words || words.length === 0) {
         alert('AI 尚未生成任何單字，請稍後再試。');
         setGenerating(false);

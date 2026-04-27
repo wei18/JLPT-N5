@@ -525,12 +525,23 @@ app.post('/api/forms/create', async (req, res) => {
       const date = now.toISOString();
       const formRecord = [[formId, title, formUrl, sessionSheetId, date]];
       
-      await sheets.spreadsheets.values.append({
-        spreadsheetId,
-        range: 'Forms List!A1',
-        valueInputOption: 'USER_ENTERED',
-        requestBody: { values: formRecord }
-      });
+      // 同時記錄單字使用量，以便日後排除重複
+      const vocabLogEntries = validVocabulary.map((v: any) => [v.word, formId]);
+
+      await Promise.all([
+        sheets.spreadsheets.values.append({
+          spreadsheetId,
+          range: 'Forms List!A1',
+          valueInputOption: 'USER_ENTERED',
+          requestBody: { values: formRecord }
+        }),
+        sheets.spreadsheets.values.append({
+          spreadsheetId,
+          range: 'Vocabulary Registry!A1',
+          valueInputOption: 'USER_ENTERED',
+          requestBody: { values: vocabLogEntries }
+        })
+      ]);
 
       res.json({ 
         success: true, 
@@ -824,7 +835,7 @@ app.post('/api/forms/delete', async (req, res) => {
       const newValues = values.filter((_, idx) => idx !== targetRowIndex);
 
       // 4. 使用更加徹底的方式刷新 Registry
-      // 清除一個較大區域
+      // 清除內容
       await sheets.spreadsheets.values.clear({
         spreadsheetId,
         range: 'Forms List!A1:E2000',
@@ -839,6 +850,33 @@ app.post('/api/forms/delete', async (req, res) => {
           requestBody: { values: newValues }
         });
       }
+
+      // 5. 同時清理 Vocabulary Registry
+      try {
+        const vocabRes = await sheets.spreadsheets.values.get({
+          spreadsheetId,
+          range: 'Vocabulary Registry!A:B',
+        });
+        const vocabValues = vocabRes.data.values || [];
+        if (vocabValues.length > 0) {
+          const newVocabValues = vocabValues.filter(row => row[1] !== formId);
+          await sheets.spreadsheets.values.clear({
+            spreadsheetId,
+            range: 'Vocabulary Registry!A1:B5000',
+          });
+          if (newVocabValues.length > 0) {
+            await sheets.spreadsheets.values.update({
+              spreadsheetId,
+              range: 'Vocabulary Registry!A1',
+              valueInputOption: 'USER_ENTERED',
+              requestBody: { values: newVocabValues }
+            });
+          }
+        }
+      } catch (vocabError) {
+        console.error('Error cleaning up Vocabulary Registry:', vocabError);
+      }
+
       console.log(`Successfully removed form ${formId} from registry.`);
     } else {
       console.warn(`Form ID ${formId} not found in registry rows.`);
@@ -869,7 +907,8 @@ app.post('/api/sheets/init', async (req, res) => {
     const resource = {
       properties: { title: 'N5 Vocabulary Master - Master Registry' },
       sheets: [
-        { properties: { title: 'Forms List' } }
+        { properties: { title: 'Forms List' } },
+        { properties: { title: 'Vocabulary Registry' } }
       ]
     };
     const spreadsheet = await sheets.spreadsheets.create({
@@ -878,19 +917,109 @@ app.post('/api/sheets/init', async (req, res) => {
     });
 
     // 初始化表頭
-    await sheets.spreadsheets.values.update({
-      spreadsheetId: spreadsheet.data.spreadsheetId!,
-      range: 'Forms List!A1',
-      valueInputOption: 'USER_ENTERED',
-      requestBody: {
-        values: [['Form ID', 'Title', 'Form URL', 'Spreadsheet ID', 'Date']]
-      }
-    });
+    await Promise.all([
+      sheets.spreadsheets.values.update({
+        spreadsheetId: spreadsheet.data.spreadsheetId!,
+        range: 'Forms List!A1',
+        valueInputOption: 'USER_ENTERED',
+        requestBody: {
+          values: [['Form ID', 'Title', 'Form URL', 'Spreadsheet ID', 'Date']]
+        }
+      }),
+      sheets.spreadsheets.values.update({
+        spreadsheetId: spreadsheet.data.spreadsheetId!,
+        range: 'Vocabulary Registry!A1',
+        valueInputOption: 'USER_ENTERED',
+        requestBody: {
+          values: [['Word', 'Form ID']]
+        }
+      })
+    ]);
     
     res.json({ spreadsheetId: spreadsheet.data.spreadsheetId });
   } catch (error) {
     console.error('Error creating spreadsheet:', error);
     return res.status(500).json({ error: 'Failed to create spreadsheet' });
+  }
+});
+
+app.get('/api/vocab/used', async (req, res) => {
+  const tokensStr = req.cookies.google_tokens;
+  if (!tokensStr) return res.status(401).json({ error: 'Not authenticated' });
+  const { spreadsheetId } = req.query;
+  if (!spreadsheetId) return res.status(400).json({ error: 'Spreadsheet ID required' });
+
+  try {
+    const client = getOAuth2Client();
+    const tokens = JSON.parse(tokensStr);
+    client.setCredentials(tokens);
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    const formsApi = google.forms({ version: 'v1', auth: client });
+
+    // 1. 讀取目前的表單列表與已使用單字
+    const [formsRes, vocabRes] = await Promise.all([
+      sheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId as string, range: 'Forms List!A:E' }),
+      sheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId as string, range: 'Vocabulary Registry!A:B' })
+    ]);
+
+    const formsRows = formsRes.data.values || [];
+    const vocabRows = vocabRes.data.values || [];
+    
+    if (formsRows.length <= 1) return res.json({ usedWords: [] });
+
+    const header = formsRows[0];
+    const dataRows = formsRows.slice(1);
+    const activeFormIds: string[] = [];
+    const formsToPrune: string[] = [];
+
+    // 2. 驗證表單是否依然存在於雲端 (分批並行)
+    await concurrentMap(dataRows, 5, async (row) => {
+      const formId = row[0];
+      try {
+        await formsApi.forms.get({ formId });
+        activeFormIds.push(formId);
+      } catch (e: any) {
+        if (isGoogleNotFoundError(e)) {
+          formsToPrune.push(formId);
+        }
+      }
+    });
+
+    // 3. 如果有單字需要清理 (同步更新兩個 Sheets)
+    if (formsToPrune.length > 0) {
+      console.log('Pruning deleted forms from registry:', formsToPrune);
+      const remainingForms = [header, ...dataRows.filter(r => !formsToPrune.includes(r[0]))];
+      const remainingVocab = vocabRows.filter(r => r[1] === 'Form ID' || activeFormIds.includes(r[1]));
+
+      await Promise.all([
+        sheets.spreadsheets.values.clear({ spreadsheetId: spreadsheetId as string, range: 'Forms List!A1:E5000' }),
+        sheets.spreadsheets.values.clear({ spreadsheetId: spreadsheetId as string, range: 'Vocabulary Registry!A1:B10000' })
+      ]);
+
+      await Promise.all([
+        sheets.spreadsheets.values.update({
+          spreadsheetId: spreadsheetId as string,
+          range: 'Forms List!A1',
+          valueInputOption: 'USER_ENTERED',
+          requestBody: { values: remainingForms }
+        }),
+        sheets.spreadsheets.values.update({
+          spreadsheetId: spreadsheetId as string,
+          range: 'Vocabulary Registry!A1',
+          valueInputOption: 'USER_ENTERED',
+          requestBody: { values: remainingVocab }
+        })
+      ]);
+      
+      const words = remainingVocab.slice(1).map(r => r[0]);
+      return res.json({ usedWords: Array.from(new Set(words)) });
+    }
+
+    const words = vocabRows.slice(1).map(r => r[0]);
+    return res.json({ usedWords: Array.from(new Set(words)) });
+  } catch (error) {
+    console.error('Error fetching used vocab:', error);
+    res.json({ usedWords: [] });
   }
 });
 
