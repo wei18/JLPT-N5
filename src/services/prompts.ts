@@ -15,11 +15,17 @@ CORE PROPERTIES:
 1. word: The Kanji/Kana. (Actual vocabulary only, e.g., "天気", not instructions).
 2. reading: Hiragana only.
 3. meaning: Traditional Chinese meaning.
-4. example: A high-quality N5 sentence mimicking exam context (Vocabulary in Context style). IMPORTANT: The target "word" MUST appear in the sentence in its EXACT base/dictionary form as provided in the "word" field.
-5. contextualDistractors: 3 alternative N5 Japanese words (NOT readings, but the words themselves) that are of the same part of speech as "word", which would be grammatically correct but semantically wrong in the "example" sentence.
+4. example: A high-quality N5 sentence mimicking exam context (Vocabulary in Context style). 
+   - **STRONG CONTEXT REQUIRED**: The sentence MUST contain enough information to make the target word the ONLY logical answer. 
+   - Avoid generic patterns like "I like [X]" or "This is [X]" unless the preceding or following part of the sentence provides a specific clue that rules out other similar nouns.
+   - Example: Instead of "I like [fruits]", use "It is sweet and red, I like [apples]".
+   - IMPORTANT: The target "word" MUST appear in the sentence in its EXACT base/dictionary form as provided in the "word" field.
+5. contextualDistractors: 3 alternative N5 Japanese words that are grammatically correct but logically/semantically IMPOSSIBLE given the specific context clues provided in the "example".
+   - **KANJI USAGE**: For N5 level, prefer Hiragana for these distractors unless the Kanji is very basic (e.g., 人, 日, 大). Avoid using complex Kanji that aren't expected at N5 level.
 6. distractors: 3 Hiragana-only distractors (similar sound/visual).
+   - **NO ROMAJI**: Never use English alphabet/Romaji (like "konshuu") in questions or answers.
    - SINGLE CORRECT ANSWER: Distractors must be strictly incorrect in the context.
    - NO JUNK: Distractors must be real N5 words/readings, never instruction fragments.
 
-Ensure all Japanese is strictly N5 level.
+Ensure all Japanese is strictly N5 level, uses Hiragana for pronunciation clues (never Romaji), follows N5 Kanji/Kana balance conventions, and prompts a single, unambiguous correct answer.
 `;
