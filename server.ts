@@ -337,7 +337,7 @@ app.post('/api/forms/create', async (req, res) => {
       
       const isShortAnswer = false; // 用戶要求不要填空題 (這裡指打字題)
 
-      if (item.isExamStyle && item.examQuestionText) {
+      if (item.contextSentence) {
         // N5 考試題型：語境用法
         // 確保選項類型與答案一致 (均為 Hiragana)
         const distractors = (item.distractors || []).slice(0, 3);
@@ -346,7 +346,7 @@ app.post('/api/forms/create', async (req, res) => {
         requests.push({
           createItem: {
             item: {
-              title: `${questionNumber}. [語境用法] 請選出最符合句意的正確讀音：\n${item.examQuestionText}`,
+              title: `${questionNumber}. [語境用法] 請選出最符合句意的正確讀音：\n${item.contextSentence}`,
               questionItem: {
                 question: {
                   required: true,
