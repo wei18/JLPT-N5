@@ -337,38 +337,10 @@ app.post('/api/forms/create', async (req, res) => {
       
       const isShortAnswer = false; // 用戶要求不要填空題 (這裡指打字題)
 
-      if (item.contextSentence) {
-        // N5 考試題型：語境用法
-        // 確保選項類型與答案一致 (均為 Hiragana)
-        const distractors = (item.distractors || []).slice(0, 3);
-        const options = [item.reading, ...distractors].sort(() => 0.5 - Math.random());
-        
-        requests.push({
-          createItem: {
-            item: {
-              title: `${questionNumber}. [語境用法] 請選出最符合句意的正確讀音：\n${item.contextSentence}`,
-              questionItem: {
-                question: {
-                  required: true,
-                  grading: { 
-                    pointValue, 
-                    correctAnswers: { answers: [{ value: item.reading }] } 
-                  },
-                  choiceQuestion: {
-                    type: 'RADIO',
-                    options: options.map(o => ({ value: o }))
-                  }
-                }
-              }
-            },
-            location: { index }
-          }
-        } as any);
-      } else {
-        // 分配題型：讀音檢測 (40%), 意思檢測 (40%), 漢字檢測 (20%)
-        const rand = Math.random();
-        
-        if (rand < 0.4) {
+      // 分配題型：讀音檢測 (40%), 意思檢測 (40%), 漢字檢測 (20%)
+      const rand = Math.random();
+      
+      if (rand < 0.4) {
           // 題型 1: 漢字 -> 讀音 (読み)
           // 優先使用 AI 提供的干擾項 (通常是相似音)，但若包含漢字則過濾掉
           const aiDistractors = (item.distractors || []).filter(d => !/[\u4e00-\u9faf]/.test(d));
@@ -386,7 +358,7 @@ app.post('/api/forms/create', async (req, res) => {
           requests.push({
             createItem: {
               item: {
-                title: `${questionNumber}. [讀音測驗] 「${item.word}」的正確讀音是什麼？`,
+                title: `${questionNumber}. 「${item.word}」的正確讀音是什麼？`,
                 questionItem: {
                   question: {
                     required: true,
@@ -412,7 +384,7 @@ app.post('/api/forms/create', async (req, res) => {
           requests.push({
             createItem: {
               item: {
-                title: `${questionNumber}. [意思測驗] 「${item.reading}」的中文意思是什麼？`,
+                title: `${questionNumber}. 「${item.reading}」的中文意思是什麼？`,
                 questionItem: {
                   question: {
                     required: true,
@@ -438,7 +410,7 @@ app.post('/api/forms/create', async (req, res) => {
           requests.push({
             createItem: {
               item: {
-                title: `${questionNumber}. [漢字標記] 讀音為「${item.reading}」的正確漢字是哪一個？`,
+                title: `${questionNumber}. 讀音為「${item.reading}」的正確漢字是哪一個？`,
                 questionItem: {
                   question: {
                     required: true,
@@ -457,8 +429,7 @@ app.post('/api/forms/create', async (req, res) => {
             }
           } as any);
         }
-      }
-    });
+      });
 
     console.log('Sending batchUpdate with requests count:', requests.length);
     try {

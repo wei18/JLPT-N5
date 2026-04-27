@@ -17,7 +17,8 @@ import {
   Clock,
   Code
 } from 'lucide-react';
-import { generateWeeklyVocabulary, VocabularyItem, VOCAB_PROMPT_TEMPLATE } from './services/gemini';
+import { generateWeeklyVocabulary, VocabularyItem } from './services/gemini';
+import { VOCAB_PROMPT_TEMPLATE } from './services/prompts';
 
 // --- Types ---
 interface User {
