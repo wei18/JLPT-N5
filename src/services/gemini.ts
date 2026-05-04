@@ -10,6 +10,7 @@ export interface VocabularyItem {
   meaning: string;
   example: string;
   contextualDistractors: string[]; // 3 N5 words of same POS for sentence completion
+  orthographyDistractors: string[]; // 3 similar/same-reading Kanji for Task 2
   distractors: string[];
 }
 
@@ -42,12 +43,16 @@ export async function generateWeeklyVocabulary(previousMistakes: string[] = [], 
                 type: Type.ARRAY,
                 items: { type: Type.STRING }
               },
+              orthographyDistractors: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING }
+              },
               distractors: { 
                 type: Type.ARRAY,
                 items: { type: Type.STRING }
               },
             },
-            required: ["word", "reading", "meaning", "example", "distractors"],
+            required: ["word", "reading", "meaning", "example", "distractors", "orthographyDistractors"],
           },
         },
       },

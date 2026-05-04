@@ -278,8 +278,6 @@ app.post('/api/forms/create', async (req, res) => {
     const sheets = google.sheets({ version: 'v4', auth: client });
 
     // 1. 建立表單 (僅設定標題)
-    // 雖然不使用 Drive API，但 Forms API 的 info.title 就可以決定其報表抬頭。
-    // 在大部分情況下，這也會同步更新 Google Drive 上的檔案名稱。
     const displayTitle = title ? (title.length > 255 ? title.substring(0, 252) + "..." : title) : "N5 Vocabulary Quiz";
     const timestampedTitle = `${displayTitle} (${new Date().getTime()})`;
     
@@ -315,21 +313,6 @@ app.post('/api/forms/create', async (req, res) => {
       return res.status(400).json({ error: '單字表內容不完整，無法建立表單。' });
     }
 
-    // Google Forms 描述上限約 4096 字元，需進行截斷以防 400 錯誤
-    let description = "📚 N5 單字表 (考前預習):\n\n";
-    for (let i = 0; i < validVocabulary.length; i++) {
-        const v = validVocabulary[i];
-        let itemText = `${i + 1}. ${v.word} (${v.reading}) - ${v.meaning}`;
-        if (v.example) itemText += `\n   例句：${v.example}`;
-        itemText += '\n\n';
-        
-        if ((description + itemText).length > 4000) {
-            description += "...(餘下單字請見測驗題目內容)";
-            break;
-        }
-        description += itemText;
-    }
-
     const requests: any[] = [
       {
         updateSettings: {
@@ -344,166 +327,155 @@ app.post('/api/forms/create', async (req, res) => {
         updateFormInfo: {
           info: {
             title: timestampedTitle,
-            description
+            description: "日本語能力試験 N5 模擬問題 (文字・語彙)"
           },
           updateMask: 'title,description'
         }
       }
     ];
 
-    // 3. 加入題目 (混合題型: 90% RADIO, 10% TEXT)
-    validVocabulary.forEach((item: any, index: number) => {
-      const questionNumber = index + 1;
-      const pointValue = 2;
-      
-      const isShortAnswer = false; // 用戶要求不要填空題 (這裡指打字題)
+    // Limit total questions and distribute across 3 JLPT parts
+    const shuffled = [...validVocabulary].sort(() => 0.5 - Math.random());
+    const totalCount = shuffled.length;
+    const perPart = Math.floor(totalCount / 3);
+    
+    const part1Items = shuffled.slice(0, perPart);
+    const part2Items = shuffled.slice(perPart, perPart * 2);
+    const part3Items = shuffled.slice(perPart * 2);
 
-      // 分配題型：讀音檢測 (30%), 意思檢測 (30%), 漢字檢測 (20%), 文脈規定 (20%)
-      const rand = Math.random();
-      
-      if (rand < 0.3) {
-          // 題型 1: 漢字 -> 讀音
-          const aiDistractors = (item.distractors || []).filter(d => !/[\u4e00-\u9faf]/.test(d));
-          let distractors = aiDistractors;
-          
-          if (distractors.length < 3) {
-            const otherReadings = validVocabulary
-              .filter((v: any) => v.word !== item.word)
-              .map((v: any) => v.reading);
-            distractors = [...distractors, ...otherReadings].slice(0, 3);
-          }
+    let currentIndex = 0;
 
-          const options = Array.from(new Set([item.reading, ...distractors])).slice(0, 4).sort(() => 0.5 - Math.random());
-          
-          // N5 Style: 漢字讀音題，給出完整句子，詢問特定單字的讀音
-          const displayTitle = item.example ? `${questionNumber}. ${item.example}` : `${questionNumber}. 「${item.word}」的正確讀音是什麼？`;
-          const displayDesc = item.example ? `問：句子中「${item.word}」的正確讀音是什麼？` : undefined;
-
-          requests.push({
-            createItem: {
-              item: {
-                title: displayTitle,
-                description: displayDesc,
-                questionItem: {
-                  question: {
-                    required: true,
-                    grading: { 
-                      pointValue, 
-                      correctAnswers: { answers: [{ value: item.reading }] } 
-                    },
-                    choiceQuestion: {
-                      type: 'RADIO',
-                      options: options.map(o => ({ value: o }))
-                    }
-                  }
-                }
-              },
-              location: { index }
-            }
-          } as any);
-        } else if (rand < 0.6) {
-          // 題型 2: 意思檢測
-          const otherWords = validVocabulary.filter((v: any) => v.word !== item.word);
-          const distractors = otherWords.sort(() => 0.5 - Math.random()).slice(0, 3).map((v: any) => v.meaning);
-          const options = Array.from(new Set([item.meaning, ...distractors])).sort(() => 0.5 - Math.random());
-          
-          // N5 Style: 文脈題，給出句子，詢問單字在該語境下的意思
-          const displayTitle = item.example ? `${questionNumber}. ${item.example}` : `${questionNumber}. 「${item.reading}」的中文意思是什麼？`;
-          const displayDesc = item.example ? `問：在上述語境中，「${item.word || item.reading}」的意思是？` : undefined;
-
-          requests.push({
-            createItem: {
-              item: {
-                title: displayTitle,
-                description: displayDesc,
-                questionItem: {
-                  question: {
-                    required: true,
-                    grading: { 
-                      pointValue, 
-                      correctAnswers: { answers: [{ value: item.meaning }] } 
-                    },
-                    choiceQuestion: {
-                      type: 'RADIO',
-                      options: options.map(o => ({ value: o }))
-                    }
-                  }
-                }
-              },
-              location: { index }
-            }
-          } as any);
-        } else if (rand < 0.8 && item.contextualDistractors && item.contextualDistractors.length >= 3) {
-          // 題型 4: 文脈規定 (選詞填空)
-          const options = Array.from(new Set([item.word, ...item.contextualDistractors])).slice(0, 4).sort(() => 0.5 - Math.random());
-          
-          // N5 Style: 句子中挖空，選擇正確單字填充
-          const displayTitle = item.example ? `${questionNumber}. ${item.example.split(item.word).join('（　　）')}` : `${questionNumber}. （　　）裡應該填入哪個單字？`;
-          const displayDesc = `問：括號中應填入哪個單字最合適？`;
-
-          requests.push({
-            createItem: {
-              item: {
-                title: displayTitle,
-                description: displayDesc,
-                questionItem: {
-                  question: {
-                    required: true,
-                    grading: { 
-                      pointValue, 
-                      correctAnswers: { answers: [{ value: item.word }] } 
-                    },
-                    choiceQuestion: {
-                      type: 'RADIO',
-                      options: options.map(o => ({ value: o }))
-                    }
-                  }
-                }
-              },
-              location: { index }
-            }
-          } as any);
-        } else {
-          // 題型 3: 漢字檢測 (漢字表現)
-          const otherWords = validVocabulary.filter((v: any) => v.word !== item.word);
-          const distractors = otherWords.sort(() => 0.5 - Math.random()).slice(0, 3).map((v: any) => v.word);
-          const options = Array.from(new Set([item.word, ...distractors])).sort(() => 0.5 - Math.random());
-          
-          // N5 Style: 漢字題，句子中通常顯示讀音或空格，要求選出正確漢字
-          let displayTitle = `${questionNumber}. 「${item.reading}」的正確漢字是哪一個？`;
-          let displayDesc = undefined;
-
-          if (item.example) {
-            // 使用全域替換，避免句子中多次出現單字時只替換一個
-            const contextualSentence = item.example.split(item.word).join(`（ ${item.reading} ）`);
-            displayTitle = `${questionNumber}. ${contextualSentence}`;
-            displayDesc = `問：括號中「${item.reading}」對應的正確漢字是？`;
-          }
-
-          requests.push({
-            createItem: {
-              item: {
-                title: displayTitle,
-                description: displayDesc,
-                questionItem: {
-                  question: {
-                    required: true,
-                    grading: { 
-                      pointValue, 
-                      correctAnswers: { answers: [{ value: item.word }] } 
-                    },
-                    choiceQuestion: {
-                      type: 'RADIO',
-                      options: options.map(o => ({ value: o }))
-                    }
-                  }
-                }
-              },
-              location: { index }
-            }
-          } as any);
+    // --- 問題１：読み (Part 1: Reading) ---
+    if (part1Items.length > 0) {
+      requests.push({
+        createItem: {
+          item: {
+            title: "問題１　＿＿＿の　ことばは　ひらがなで　どう　かきますか。１・２・３・４から　いちばん　いい　ものを　ひとつ　えらんで　ください。",
+            textItem: {}
+          },
+          location: { index: currentIndex++ }
         }
       });
+
+      part1Items.forEach((item: any, i: number) => {
+        const displayTitle = item.example 
+          ? `${i + 1}. ${item.example.split(item.word).join(`【 ${item.word} 】`)}` 
+          : `${i + 1}. 「${item.word}」の　よみは　なんですか。`;
+
+        requests.push({
+          createItem: {
+            item: {
+              title: displayTitle,
+              questionItem: {
+                question: {
+                  required: true,
+                  grading: { 
+                    pointValue: 2, 
+                    correctAnswers: { answers: [{ value: item.reading }] } 
+                  },
+                  choiceQuestion: {
+                    type: 'RADIO',
+                    options: Array.from(new Set([item.reading, ...item.distractors]))
+                      .slice(0, 4)
+                      .sort(() => 0.5 - Math.random())
+                      .map(o => ({ value: o }))
+                  }
+                }
+              }
+            },
+            location: { index: currentIndex++ }
+          }
+        });
+      });
+    }
+
+    // --- 問題２：表記 (Part 2: Orthography/Kanji Selection) ---
+    if (part2Items.length > 0) {
+      requests.push({
+        createItem: {
+          item: {
+            title: "問題２　＿＿＿の　ことばは　どう　かきますか。１・２・３・４から　いちばん　いい　ものを　ひとつ　えらんで　ください。",
+            textItem: {}
+          },
+          location: { index: currentIndex++ }
+        }
+      });
+
+      part2Items.forEach((item: any, i: number) => {
+        const displayTitle = item.example 
+          ? `${i + 1}. ${item.example.split(item.word).join(`【 ${item.reading} 】`)}` 
+          : `${i + 1}. 「${item.reading}」の　かんじは　なんですか。`;
+
+        requests.push({
+          createItem: {
+            item: {
+              title: displayTitle,
+              questionItem: {
+                question: {
+                  required: true,
+                  grading: { 
+                    pointValue: 2, 
+                    correctAnswers: { answers: [{ value: item.word }] } 
+                  },
+                  choiceQuestion: {
+                    type: 'RADIO',
+                    options: Array.from(new Set([item.word, ...(item.orthographyDistractors || [])]))
+                      .slice(0, 4)
+                      .sort(() => 0.5 - Math.random())
+                      .map(o => ({ value: o }))
+                  }
+                }
+              }
+            },
+            location: { index: currentIndex++ }
+          }
+        });
+      });
+    }
+
+    // --- 問題３：文脈規定 (Part 3: Contextual Usage) ---
+    if (part3Items.length > 0) {
+      requests.push({
+        createItem: {
+          item: {
+            title: "問題３　（　　）に　なにを　いれますか。１・２・３・４から　いちばん　いい　ものを　ひとつ　えらんで　ください。",
+            textItem: {}
+          },
+          location: { index: currentIndex++ }
+        }
+      });
+
+      part3Items.forEach((item: any, i: number) => {
+        const displayTitle = item.example 
+          ? `${i + 1}. ${item.example.split(item.word).join('（　　）')}` 
+          : `${i + 1}. （　　）に　なにを　いれますか。`;
+
+        requests.push({
+          createItem: {
+            item: {
+              title: displayTitle,
+              questionItem: {
+                question: {
+                  required: true,
+                  grading: { 
+                    pointValue: 2, 
+                    correctAnswers: { answers: [{ value: item.word }] } 
+                  },
+                  choiceQuestion: {
+                    type: 'RADIO',
+                    options: Array.from(new Set([item.word, ...item.contextualDistractors]))
+                      .slice(0, 4)
+                      .sort(() => 0.5 - Math.random())
+                      .map(o => ({ value: o }))
+                  }
+                }
+              }
+            },
+            location: { index: currentIndex++ }
+          }
+        });
+      });
+    }
 
     console.log('Sending batchUpdate with requests count:', requests.length);
     try {

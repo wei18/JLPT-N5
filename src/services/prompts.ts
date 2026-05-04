@@ -22,7 +22,8 @@ CORE PROPERTIES:
    - IMPORTANT: The target "word" MUST appear in the sentence in its EXACT base/dictionary form as provided in the "word" field.
 5. contextualDistractors: 3 alternative N5 Japanese words that are grammatically correct but logically/semantically IMPOSSIBLE given the specific context clues provided in the "example".
    - **KANJI USAGE**: For N5 level, prefer Hiragana for these distractors unless the Kanji is very basic (e.g., 人, 日, 大). Avoid using complex Kanji that aren't expected at N5 level.
-6. distractors: 3 Hiragana-only distractors (similar sound/visual).
+6. orthographyDistractors: 3 alternative Kanji/Kana words that have the SAME reading as "word" or look visually similar (N5 level). Example: If "word" is "先生", distractors could be "先正", "先主", "生先".
+7. distractors: 3 Hiragana-only distractors (similar sound/visual).
    - **NO ROMAJI**: Never use English alphabet/Romaji (like "konshuu") in questions or answers.
    - SINGLE CORRECT ANSWER: Distractors must be strictly incorrect in the context.
    - NO JUNK: Distractors must be real N5 words/readings, never instruction fragments.
